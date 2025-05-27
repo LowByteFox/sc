@@ -7,7 +7,7 @@
 int main()
 {
     struct sx_ctx ctx = { 0 };
-    const char *prog = "(+ 1 (+ 1 (+ 2 3)))";
+    const char *prog = "(len \"Hello World!\")";
 
     struct sx_rt_val res = sx_eval(&ctx, prog, strlen(prog));
 
@@ -18,6 +18,8 @@ int main()
 
     if (res.type == RT_NUM)
         printf("%ld\n", res.number);
+    else if (res.type == RT_REAL)
+        printf("%f\n", res.real);
 
     return 0;
 }
