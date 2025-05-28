@@ -7,43 +7,24 @@
 
 #include "sc.h"
 #include "sc_priv.h"
-
-static bool isspecial(char c);
-static sc_value eval_ast(struct sc_ctx *ctx);
-static sc_value get_val(struct sc_ctx *ctx, uint8_t type);
-static void parse_expr(struct sc_ctx *ctx);
-static void parse_val(struct sc_ctx *ctx);
-static void append_tok(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_tok tk);
-static void append_loc(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_loc loc);
-
-/* helper fns */
-static bool has_real(sc_value *args, uint16_t nargs);
-
-/* builtin routines */
-static sc_value plus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
-static sc_value minus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
-static sc_value mult(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
-static sc_value divide(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
-static sc_value len(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
-static sc_value list(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
-static sc_value cons(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
-static sc_value car(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
-static sc_value cdr(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+#include "config.h"
 
 const char *sc_err = NULL;
 static const char *buf = NULL;
 
 static struct sc_priv_fns priv[] = {
-    { "+", plus },
-    { "-", minus },
-    { "*", mult },
-    { "/", divide },
-    { "len", len },
-    { "list", list },
-    { "cons", cons },
-    { "car", car },
-    { "cdr", cdr },
-    { NULL, NULL },
+    { false, "+", plus },
+    { false, "-", minus },
+    { false, "*", mult },
+    { false, "/", divide },
+    { false, "len", len },
+    { false, "list", list },
+    { false, "cons", cons },
+    { false, "car", car },
+    { false, "cdr", cdr },
+    { false, "begin", begin },
+    { true, "eval", eval },
+    { false, NULL, NULL },
 };
 
 sc_value sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen) {
@@ -137,17 +118,9 @@ static bool isspecial(char c) {
 }
 
 static sc_value eval_ast(struct sc_ctx *ctx) {
-    sc_value res = { 0 };
     struct sc_ast_expr *expr = (void*) (ctx->heap + ctx->_ctx->eval_offset);
     ctx->_ctx->eval_offset += sizeof(*expr);
-    sc_value *args = sc_alloc(ctx, expr->arg_count * sizeof(*args));
-
-    for (uint16_t i = 0; i < expr->arg_count; i++) {
-        uint8_t *type = (void*) (ctx->heap + ctx->_ctx->eval_offset);
-        if (*type == SC_AST_EXPR) args[i] = eval_ast(ctx);
-        else args[i] = get_val(ctx, *type);
-    }
-
+    uint8_t fn_index = sizeof(priv) / sizeof(priv[0]) - 1;
     uint16_t len = 0;
     const char *it = buf + expr->ident;
     while (!isspace(*it) && !isspecial(*it)) { it++; len++; }
@@ -155,14 +128,35 @@ static sc_value eval_ast(struct sc_ctx *ctx) {
     it = buf + expr->ident;
     for (uint8_t i = 0; priv[i].name != NULL; i++) {
         if (strncmp(it, priv[i].name, len) == 0) {
-            return priv[i].run(ctx, args, expr->arg_count);
+            fn_index = i; break;
+        }
+    }
+    if (priv[fn_index].name == NULL) return (sc_value) {0};
+    sc_value *args = sc_alloc(ctx, expr->arg_count * sizeof(*args));
+
+    if (priv[fn_index].lazy) {
+        for (uint16_t i = 0; i < expr->arg_count; i++) {
+            args[i].type = SC_LAZY_EXPR_VAL;
+            args[i].lazy_addr = ctx->_ctx->eval_offset;
+
+            uint8_t *type = (void*) (ctx->heap + ctx->_ctx->eval_offset);
+            if (*type == SC_AST_EXPR) {
+                struct sc_ast_expr *_expr = (void*) (ctx->heap + ctx->_ctx->eval_offset);
+                ctx->_ctx->eval_offset += _expr->jump_by;
+            } else ctx->_ctx->eval_offset += sizeof(struct sc_ast_val);
+        }
+    } else {
+        for (uint16_t i = 0; i < expr->arg_count; i++) {
+            uint8_t *type = (void*) (ctx->heap + ctx->_ctx->eval_offset);
+            if (*type == SC_AST_EXPR) args[i] = eval_ast(ctx);
+            else args[i] = get_val(ctx, *type);
         }
     }
 
-    return res;
+    return priv[fn_index].run(ctx, args, expr->arg_count);
 }
-static sc_value get_val(struct sc_ctx *ctx, uint8_t type)
-{
+
+static sc_value get_val(struct sc_ctx *ctx, uint8_t type) {
     sc_value res = { 0 };
     struct sc_ast_val *val = (void*) (ctx->heap + ctx->_ctx->eval_offset);
     ctx->_ctx->eval_offset += sizeof(*val);
@@ -187,6 +181,7 @@ static sc_value get_val(struct sc_ctx *ctx, uint8_t type)
 }
 
 static void parse_expr(struct sc_ctx *ctx) {
+    uint16_t start = ctx->_ctx->arena_index;
     struct sc_ast_expr *expr = sc_alloc(ctx, sizeof(*expr));
     expr->type = SC_AST_EXPR;
     ctx->_ctx->tok_index++; /* skip ( */
@@ -212,6 +207,7 @@ static void parse_expr(struct sc_ctx *ctx) {
         current = ctx->tokens[ctx->_ctx->tok_index];
     }
     expr->arg_count = arg_count;
+    expr->jump_by = ctx->_ctx->arena_index - start;
     ctx->_ctx->tok_index++; /* skip ) */
 
     return;
@@ -239,6 +235,10 @@ static void append_loc(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_loc l
     if (*len * sizeof(loc) == *sz)
         ctx->locs = realloc(ctx->locs, (*sz += ARR_GROW * sizeof(loc)));
     ctx->locs[(*len)++] = loc;
+}
+
+void sc_init(struct sc_ctx *ctx) {
+    /* */
 }
 
 void *sc_alloc(struct sc_ctx *ctx, uint16_t size) {
@@ -354,4 +354,15 @@ static sc_value cdr(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (args[0].type != SC_LIST_VAL) return res;
 
     return *args[0].list.next;
+}
+
+static sc_value begin(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) { return args[nargs - 1]; }
+
+/* TEMP */
+static sc_value eval(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    uint16_t old = ctx->_ctx->eval_offset;
+    ctx->_ctx->eval_offset = args[0].lazy_addr;
+    sc_value res = eval_ast(ctx);
+    ctx->_ctx->eval_offset = old;    
+    return res;
 }
