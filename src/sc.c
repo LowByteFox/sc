@@ -23,7 +23,7 @@ static struct sc_priv_fns priv[] = {
     { false, "car", car },
     { false, "cdr", cdr },
     { false, "begin", begin },
-    { true, "eval", eval },
+    { true, "define", define },
     { false, NULL, NULL },
 };
 
@@ -98,6 +98,7 @@ flt:
     ctx->heap = calloc(HEAP_SIZE, sizeof(uint8_t));
 
     struct sc_ast_ctx ast_ctx = { 0 };
+    struct sc_stack stack = { 0 };
     ast_ctx.tok_limit = toks_len - 1;
     ctx->_ctx = &ast_ctx;
 
@@ -107,6 +108,8 @@ flt:
     }
 
     parse_expr(ctx);
+    ctx->_stack = &stack;
+    push_frame(ctx);
     ast_ctx.eval_offset = 0;
     sc_value res = eval_ast(ctx);
     ctx->_ctx = NULL;
@@ -152,7 +155,6 @@ static sc_value eval_ast(struct sc_ctx *ctx) {
             else args[i] = get_val(ctx, *type);
         }
     }
-
     return priv[fn_index].run(ctx, args, expr->arg_count);
 }
 
@@ -175,6 +177,14 @@ static sc_value get_val(struct sc_ctx *ctx, uint8_t type) {
         res.str = sc_alloc(ctx, len + 1);
         memcpy(res.str, buf + val->value, len);
         res.str[len] = 0;
+    } else if (type == SC_AST_IDENT) {
+        size_t len = strcspn(buf + val->value, " )");
+        char buffer[len + 1];
+        memcpy(buffer, buf + val->value, len);
+        buffer[len] = 0;
+        struct sc_stack_kv *maybe = stack_find(ctx->_stack, buffer);
+        if (maybe != NULL)
+            res = maybe->value;
     }
 
     return res;
@@ -237,8 +247,60 @@ static void append_loc(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_loc l
     ctx->locs[(*len)++] = loc;
 }
 
-void sc_init(struct sc_ctx *ctx) {
-    /* */
+static void push_frame(struct sc_ctx *ctx) {
+    struct sc_stack_node *n = sc_alloc(ctx, sizeof(*n));
+
+    if (ctx->_stack->head == NULL) {
+        ctx->_stack->head = n;
+        ctx->_stack->tail = n;
+    } else {
+        ctx->_stack->tail->next_frame = n;
+        ctx->_stack->tail = n;
+    }
+}
+
+static void pop_frame(struct sc_stack *stack) {
+    struct sc_stack_node *iter = stack->head;
+    while (iter->next_frame != NULL && iter->next_frame->next_frame != NULL)
+        iter = iter->next_frame;
+    iter->next_frame = NULL;
+    stack->tail = iter;
+}
+
+static struct sc_stack_kv *stack_node_find(struct sc_stack_node *node, const char *ident) {
+    struct sc_stack_kv *res = NULL;
+    if (node->next_frame) {
+        res = stack_node_find(node->next_frame, ident);
+        if (res != NULL)
+            return res;
+    }
+
+    struct sc_stack_kv *iter = node->first_value;
+    while (iter != NULL) {
+        if (strcmp(iter->ident, ident) == 0) return iter;
+        iter = iter->next;
+    }
+    return res;
+}
+
+static struct sc_stack_kv *stack_find(struct sc_stack *stack, const char *ident) {
+    return stack_node_find(stack->head, ident);
+}
+
+static struct sc_stack_kv *global_add(struct sc_ctx *ctx) {
+    struct sc_stack_kv *kv = sc_alloc(ctx, sizeof(*kv));
+    if (ctx->_stack->head->first_value == NULL) {
+        ctx->_stack->head->first_value = kv;
+        ctx->_stack->head->last_value = kv;
+    } else {
+        ctx->_stack->head->last_value->next = kv;
+        ctx->_stack->head->last_value = kv;
+    }
+    return kv;
+}
+
+static struct sc_stack_kv *frame_add(struct sc_ctx *ctx) {
+    return NULL;
 }
 
 void *sc_alloc(struct sc_ctx *ctx, uint16_t size) {
@@ -248,6 +310,18 @@ void *sc_alloc(struct sc_ctx *ctx, uint16_t size) {
 }
 
 /* helper fns */
+static sc_value eval_at(struct sc_ctx *ctx, uint16_t addr) {
+    uint16_t old = ctx->_ctx->eval_offset;
+    sc_value res = { 0 };
+    ctx->_ctx->eval_offset = addr;
+    if (ctx->heap[ctx->_ctx->eval_offset] != SC_AST_EXPR)
+        res = get_val(ctx, ctx->heap[ctx->_ctx->eval_offset]);
+    else
+        res = eval_ast(ctx);
+    ctx->_ctx->eval_offset = old;
+    return res;
+}
+
 static bool has_real(sc_value *args, uint16_t nargs) {
     for (uint16_t i = 0; i < nargs; i++) { if (args[i].type == SC_REAL_VAL) return true; }
     return false;
@@ -358,11 +432,20 @@ static sc_value cdr(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 
 static sc_value begin(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) { return args[nargs - 1]; }
 
-/* TEMP */
-static sc_value eval(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    uint16_t old = ctx->_ctx->eval_offset;
-    ctx->_ctx->eval_offset = args[0].lazy_addr;
-    sc_value res = eval_ast(ctx);
-    ctx->_ctx->eval_offset = old;    
+static sc_value define(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    sc_value res = { 0 };
+    if (nargs != 2) return res;
+    if (ctx->heap[args[0].lazy_addr] != SC_AST_IDENT) return res;
+    struct sc_ast_val *v = (void*) ctx->heap + args[0].lazy_addr;
+    const char *ident_str = buf + v->value;
+    size_t len = strcspn(ident_str, " ");
+    char *ident = sc_alloc(ctx, len + 1);
+    memcpy(ident, ident_str, len);
+    ident[len] = 0;
+    struct sc_stack_kv *kv = global_add(ctx);
+    kv->ident = ident;
+    kv->value = eval_at(ctx, args[1].lazy_addr);
+    res.boolean = true;
+    res.type = SC_BOOL_VAL;
     return res;
 }

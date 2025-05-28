@@ -45,6 +45,23 @@ struct sc_ast_ctx {
     };
 };
 
+struct sc_stack_kv {
+    char *ident;
+    struct sc_stack_kv *next;
+    sc_value value;
+};
+
+struct sc_stack_node {
+    struct sc_stack_kv *first_value;
+    struct sc_stack_kv *last_value;
+    struct sc_stack_node *next_frame;
+};
+
+struct sc_stack {
+    struct sc_stack_node *head;
+    struct sc_stack_node *tail;
+};
+
 static bool isspecial(char c);
 static sc_value eval_ast(struct sc_ctx *ctx);
 static sc_value get_val(struct sc_ctx *ctx, uint8_t type);
@@ -53,7 +70,15 @@ static void parse_val(struct sc_ctx *ctx);
 static void append_tok(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_tok tk);
 static void append_loc(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_loc loc);
 
+static void push_frame(struct sc_ctx *ctx);
+static void pop_frame(struct sc_stack *stack);
+static struct sc_stack_kv *stack_node_find(struct sc_stack_node *node, const char *ident);
+static struct sc_stack_kv *stack_find(struct sc_stack *stack, const char *ident);
+static struct sc_stack_kv *global_add(struct sc_ctx *ctx);
+static struct sc_stack_kv *frame_add(struct sc_ctx *ctx);
+
 /* helper fns */
+static sc_value eval_at(struct sc_ctx *ctx, uint16_t addr);
 static bool has_real(sc_value *args, uint16_t nargs);
 
 /* builtin routines */
@@ -67,6 +92,6 @@ static sc_value cons(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value car(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value cdr(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value begin(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
-static sc_value eval(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value define(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 
 #endif

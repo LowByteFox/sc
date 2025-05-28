@@ -9,9 +9,8 @@ static void print_value(sc_value *val);
 int main()
 {
     struct sc_ctx ctx = { 0 };
-    const char *prog = "(begin (eval (+ 3 4)) (+ 1 1))";
+    const char *prog = "(begin (define x 10) (+ x))";
 
-    sc_init(&ctx);
     sc_value res = sc_eval(&ctx, prog, strlen(prog));
 
     if (sc_err != NULL) {
