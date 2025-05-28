@@ -4,40 +4,42 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define HEAP_SIZE INT16_MAX
+#define HEAP_SIZE UINT16_MAX
 #define ARR_GROW 64
 
-#define sc_get_number(val) (val.type == RT_NUM ? val.number : val.real)
+#define sc_get_number(val) (val.type == SC_NUM_VAL ? val.number : val.real)
 
 struct sc_ast_ctx;
 
 enum sc_tokens {
-    END = 1,
-    LPAREN = '(',
-    RPAREN = ')',
+    SC_END_TOK = 1,
+    SC_LPAREN_TOK = '(',
+    SC_RPAREN_TOK = ')',
 
-    IDENT = 'I',
-    NUM = 'N',
-    REAL = 'R',
-    BOOL = 'B',
-    STRING = 'S',
-    LIST = 'L',
+    SC_IDENT_TOK = 'I',
+    SC_NUM_TOK = 'N',
+    SC_REAL_TOK = 'R',
+    SC_BOOL_TOK = 'B',
+    SC_STRING_TOK = 'S',
+    SC_LIST_TOK = 'L',
 };
 
-enum sc_rt_type {
-    RT_NOTHING,
-    RT_NUM,
-    RT_REAL,
-    RT_BOOL,
-    RT_STRING,
-    RT_LIST,
+enum sc_val_type {
+    SC_NOTHING_VAL = 0,
+    SC_NUM_VAL,
+    SC_REAL_VAL,
+    SC_BOOL_VAL,
+    SC_STRING_VAL,
+    SC_LIST_VAL,
 };
 
 struct sc_ctx;
+struct sc_val;
 
 typedef uint8_t sc_tok;
 typedef uint16_t sc_loc;
-typedef struct sc_rt_val (*sc_fn)(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs);
+typedef struct sc_val sc_value;
+typedef sc_value (*sc_fn)(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 
 struct sc_kv {
     sc_tok val_type; /* type of value */
@@ -53,7 +55,7 @@ struct sc_ctx {
     struct sc_ast_ctx *_ctx;
 };
 
-struct sc_rt_val {
+struct sc_val {
     uint8_t type;
     union {
         bool boolean;
@@ -61,8 +63,8 @@ struct sc_rt_val {
         double real;
         char *str;
         struct {
-            struct sc_rt_val *current;
-            struct sc_rt_val *next;
+            struct sc_val *current;
+            struct sc_val *next;
         } list;
     };
 };
@@ -70,6 +72,6 @@ struct sc_rt_val {
 extern const char *sc_err;
 
 void *sc_alloc(struct sc_ctx *ctx, uint16_t size);
-struct sc_rt_val sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen);
+sc_value sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen);
 
 #endif

@@ -6,59 +6,29 @@
 #include <stdbool.h>
 
 #include "sc.h"
-
-#if HEAP_SIZE > UINT16_MAX
-#error "Heap size cannot be more than 65535 (UINT16_MAX) bytes"
-#endif
-
-enum sc_node_types {
-    AST_EXPR = 1,
-    AST_IDENT,
-    AST_NUM,
-    AST_REAL,
-    AST_BOOL,
-    AST_STRING,
-};
-
-struct sc_ast_val {
-    uint8_t type;
-    uint16_t value; /* index of the value in the buffer/index of expression node in the heap */
-};
-
-struct sc_ast_expr {
-    uint8_t type;
-    uint16_t ident; /* index of the ident in the buffer */
-    uint16_t arg_count; /* number of args the expression has */
-};
-
-struct sc_priv_fns {
-    const char *name;
-    sc_fn run;
-};
-
-struct sc_ast_ctx { uint16_t arena_index; union { uint16_t tok_index; uint16_t eval_offset; }; uint16_t tok_limit; };
+#include "sc_priv.h"
 
 static bool isspecial(char c);
-static struct sc_rt_val eval_ast(struct sc_ctx *ctx);
-static struct sc_rt_val get_val(struct sc_ctx *ctx, uint8_t type);
+static sc_value eval_ast(struct sc_ctx *ctx);
+static sc_value get_val(struct sc_ctx *ctx, uint8_t type);
 static void parse_expr(struct sc_ctx *ctx);
 static void parse_val(struct sc_ctx *ctx);
 static void append_tok(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_tok tk);
 static void append_loc(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_loc loc);
 
 /* helper fns */
-static bool has_real(struct sc_rt_val *args, uint16_t nargs);
+static bool has_real(sc_value *args, uint16_t nargs);
 
 /* builtin routines */
-static struct sc_rt_val plus(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs);
-static struct sc_rt_val minus(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs);
-static struct sc_rt_val mult(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs);
-static struct sc_rt_val divide(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs);
-static struct sc_rt_val len(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs);
-static struct sc_rt_val list(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs);
-static struct sc_rt_val cons(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs);
-static struct sc_rt_val car(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs);
-static struct sc_rt_val cdr(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs);
+static sc_value plus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value minus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value mult(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value divide(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value len(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value list(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value cons(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value car(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value cdr(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 
 const char *sc_err = NULL;
 static const char *buf = NULL;
@@ -76,7 +46,7 @@ static struct sc_priv_fns priv[] = {
     { NULL, NULL },
 };
 
-struct sc_rt_val sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen) {
+sc_value sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen) {
     if (ctx->heap) free(ctx->heap);
     if (ctx->tokens) free(ctx->tokens);
     if (ctx->locs) free(ctx->locs);
@@ -85,7 +55,7 @@ struct sc_rt_val sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen
 
     uint16_t toks_len, toks_size, locs_len, locs_size;
     toks_len = toks_size = locs_len = locs_size = 0;
-    struct sc_rt_val nul = { 0 };
+    sc_value nul = { 0 };
 
     for (uint16_t i = 0; i < buflen; i++, buffer++) {
         char c = *buffer;
@@ -100,7 +70,7 @@ struct sc_rt_val sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen
 
         if (isdigit(c)) {
             bool parsed_float = false;
-            append_tok(ctx, &toks_len, &toks_size, NUM);
+            append_tok(ctx, &toks_len, &toks_size, SC_NUM_TOK);
             append_loc(ctx, &locs_len, &locs_size, i);
 flt:
             do {
@@ -108,7 +78,7 @@ flt:
                 c = *buffer;
             } while (isdigit(c) && !isspecial(c));
             if (c == '.' && !parsed_float && isdigit(buffer[1])) {
-                ctx->tokens[toks_len - 1] = REAL;
+                ctx->tokens[toks_len - 1] = SC_REAL_TOK;
                 parsed_float = true;
                 goto flt;
             }
@@ -117,7 +87,7 @@ flt:
             if (c == '#') { /* possibly bool */
                 if (buffer[1] == 't' || buffer[1] == 'f') {
                     i++; buffer++;
-                    append_tok(ctx, &toks_len, &toks_size, BOOL);
+                    append_tok(ctx, &toks_len, &toks_size, SC_BOOL_TOK);
                     append_loc(ctx, &locs_len, &locs_size, i);
                 } else {
                     sc_err = "Exprected #t or #f!";
@@ -125,14 +95,14 @@ flt:
                 }
             } else if (c == '"') { /* possibly string */
                 i++; buffer++;
-                append_tok(ctx, &toks_len, &toks_size, STRING);
+                append_tok(ctx, &toks_len, &toks_size, SC_STRING_TOK);
                 append_loc(ctx, &locs_len, &locs_size, i); /* start of the string */
                 do {
                     i++; buffer++;
                     c = *buffer;
                 } while (c != '"');
             } else {
-                append_tok(ctx, &toks_len, &toks_size, IDENT);
+                append_tok(ctx, &toks_len, &toks_size, SC_IDENT_TOK);
                 append_loc(ctx, &locs_len, &locs_size, i);
 
                 do {
@@ -143,7 +113,7 @@ flt:
             }
         }
     }
-    append_tok(ctx, &toks_len, &toks_size, END);
+    append_tok(ctx, &toks_len, &toks_size, SC_END_TOK);
     ctx->heap = calloc(HEAP_SIZE, sizeof(uint8_t));
 
     struct sc_ast_ctx ast_ctx = { 0 };
@@ -157,7 +127,7 @@ flt:
 
     parse_expr(ctx);
     ast_ctx.eval_offset = 0;
-    struct sc_rt_val res = eval_ast(ctx);
+    sc_value res = eval_ast(ctx);
     ctx->_ctx = NULL;
     return res;
 }
@@ -166,15 +136,15 @@ static bool isspecial(char c) {
     return c == '(' || c == ')';
 }
 
-static struct sc_rt_val eval_ast(struct sc_ctx *ctx) {
-    struct sc_rt_val res = { 0 };
+static sc_value eval_ast(struct sc_ctx *ctx) {
+    sc_value res = { 0 };
     struct sc_ast_expr *expr = (void*) (ctx->heap + ctx->_ctx->eval_offset);
     ctx->_ctx->eval_offset += sizeof(*expr);
-    struct sc_rt_val *args = sc_alloc(ctx, expr->arg_count * sizeof(*args));
+    sc_value *args = sc_alloc(ctx, expr->arg_count * sizeof(*args));
 
     for (uint16_t i = 0; i < expr->arg_count; i++) {
         uint8_t *type = (void*) (ctx->heap + ctx->_ctx->eval_offset);
-        if (*type == AST_EXPR) args[i] = eval_ast(ctx);
+        if (*type == SC_AST_EXPR) args[i] = eval_ast(ctx);
         else args[i] = get_val(ctx, *type);
     }
 
@@ -191,23 +161,23 @@ static struct sc_rt_val eval_ast(struct sc_ctx *ctx) {
 
     return res;
 }
-static struct sc_rt_val get_val(struct sc_ctx *ctx, uint8_t type)
+static sc_value get_val(struct sc_ctx *ctx, uint8_t type)
 {
-    struct sc_rt_val res = { 0 };
+    sc_value res = { 0 };
     struct sc_ast_val *val = (void*) (ctx->heap + ctx->_ctx->eval_offset);
     ctx->_ctx->eval_offset += sizeof(*val);
-    if (type == AST_NUM) {
-        res.type = RT_NUM;
+    if (type == SC_AST_NUM) {
+        res.type = SC_NUM_VAL;
         res.number = strtol(buf + val->value, NULL, 10);
-    } else if (type == AST_REAL) {
-        res.type = RT_REAL;
+    } else if (type == SC_AST_REAL) {
+        res.type = SC_REAL_VAL;
         res.real = strtod(buf + val->value, NULL);
-    } else if (type == AST_BOOL) {
-        res.type = RT_BOOL;
+    } else if (type == SC_AST_BOOL) {
+        res.type = SC_BOOL_VAL;
         res.boolean = buf[val->value] == 't' ? true : false;
-    } else if (type == AST_STRING) {
+    } else if (type == SC_AST_STRING) {
         size_t len = strcspn(buf + val->value, "\"");
-        res.type = RT_STRING;
+        res.type = SC_STRING_VAL;
         res.str = sc_alloc(ctx, len + 1);
         memcpy(res.str, buf + val->value, len);
         res.str[len] = 0;
@@ -218,9 +188,9 @@ static struct sc_rt_val get_val(struct sc_ctx *ctx, uint8_t type)
 
 static void parse_expr(struct sc_ctx *ctx) {
     struct sc_ast_expr *expr = sc_alloc(ctx, sizeof(*expr));
-    expr->type = AST_EXPR;
+    expr->type = SC_AST_EXPR;
     ctx->_ctx->tok_index++; /* skip ( */
-    if (ctx->tokens[ctx->_ctx->tok_index] != IDENT) {
+    if (ctx->tokens[ctx->_ctx->tok_index] != SC_IDENT_TOK) {
         sc_err = "Expected identifier!";
         return;
     }
@@ -236,7 +206,7 @@ static void parse_expr(struct sc_ctx *ctx) {
         }
 
         arg_count++;
-        if (current == LPAREN) parse_expr(ctx);
+        if (current == SC_LPAREN_TOK) parse_expr(ctx);
         else parse_val(ctx);
 
         current = ctx->tokens[ctx->_ctx->tok_index];
@@ -250,11 +220,11 @@ static void parse_expr(struct sc_ctx *ctx) {
 static void parse_val(struct sc_ctx *ctx) {
     struct sc_ast_val *val = sc_alloc(ctx, sizeof(*val));
     sc_tok current = ctx->tokens[ctx->_ctx->tok_index];
-    if (current == IDENT) val->type = AST_IDENT;
-    else if (current == NUM) val->type = AST_NUM;
-    else if (current == REAL) val->type = AST_REAL;
-    else if (current == BOOL) val->type = AST_BOOL;
-    else if (current == STRING) val->type = AST_STRING;
+    if (current == SC_IDENT_TOK) val->type = SC_AST_IDENT;
+    else if (current == SC_NUM_TOK) val->type = SC_AST_NUM;
+    else if (current == SC_REAL_TOK) val->type = SC_AST_REAL;
+    else if (current == SC_BOOL_TOK) val->type = SC_AST_BOOL;
+    else if (current == SC_STRING_TOK) val->type = SC_AST_STRING;
     val->value = ctx->locs[ctx->_ctx->tok_index];
     ctx->_ctx->tok_index++; /* skip over */
 }
@@ -278,16 +248,16 @@ void *sc_alloc(struct sc_ctx *ctx, uint16_t size) {
 }
 
 /* helper fns */
-static bool has_real(struct sc_rt_val *args, uint16_t nargs) {
-    for (uint16_t i = 0; i < nargs; i++) { if (args[i].type == RT_REAL) return true; }
+static bool has_real(sc_value *args, uint16_t nargs) {
+    for (uint16_t i = 0; i < nargs; i++) { if (args[i].type == SC_REAL_VAL) return true; }
     return false;
 }
 
 /* builtin routines */
-static struct sc_rt_val plus(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs) {
-    struct sc_rt_val res = { 0 };
+static sc_value plus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    sc_value res = { 0 };
     bool real = has_real(args, nargs);
-    res.type = real ? RT_REAL : RT_NUM;
+    res.type = real ? SC_REAL_VAL : SC_NUM_VAL;
 
     for (uint16_t i = 0; i < nargs; i++)
         if (real) res.real += sc_get_number(args[i]); else res.number += sc_get_number(args[i]);
@@ -295,10 +265,10 @@ static struct sc_rt_val plus(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_
     return res;
 }
 
-static struct sc_rt_val minus(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs) {
-    struct sc_rt_val res = { 0 };
+static sc_value minus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    sc_value res = { 0 };
     bool real = has_real(args, nargs);
-    res.type = real ? RT_REAL : RT_NUM;
+    res.type = real ? SC_REAL_VAL : SC_NUM_VAL;
 
     if (nargs == 0) return res;
 
@@ -310,10 +280,10 @@ static struct sc_rt_val minus(struct sc_ctx *ctx, struct sc_rt_val *args, uint16
     return res;
 }
 
-static struct sc_rt_val mult(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs) {
-    struct sc_rt_val res = { 0 };
+static sc_value mult(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    sc_value res = { 0 };
     bool real = has_real(args, nargs);
-    res.type = real ? RT_REAL : RT_NUM;
+    res.type = real ? SC_REAL_VAL : SC_NUM_VAL;
 
     if (nargs == 0) return res;
 
@@ -325,10 +295,10 @@ static struct sc_rt_val mult(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_
     return res;
 }
 
-static struct sc_rt_val divide(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs) {
-    struct sc_rt_val res = { 0 };
+static sc_value divide(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    sc_value res = { 0 };
     bool real = has_real(args, nargs);
-    res.type = real ? RT_REAL : RT_NUM;
+    res.type = real ? SC_REAL_VAL : SC_NUM_VAL;
 
     if (nargs == 0) return res;
 
@@ -340,21 +310,21 @@ static struct sc_rt_val divide(struct sc_ctx *ctx, struct sc_rt_val *args, uint1
     return res;
 }
 
-static struct sc_rt_val len(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs) {
-    struct sc_rt_val res = { 0 };
+static sc_value len(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    sc_value res = { 0 };
     if (nargs != 1) return res;
-    if (args[0].type != RT_STRING) return res;
-    res.type = RT_NUM;
+    if (args[0].type != SC_STRING_VAL) return res;
+    res.type = SC_NUM_VAL;
     res.number = strlen(args[0].str);
     return res;
 }
 
-static struct sc_rt_val list(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs) {
-    struct sc_rt_val res = { 0 };
+static sc_value list(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    sc_value res = { 0 };
 
-    struct sc_rt_val *iter = &res;
+    sc_value *iter = &res;
     for (uint16_t i = 0; i < nargs; i++) {
-        iter->type = RT_LIST;
+        iter->type = SC_LIST_VAL;
         iter->list.current = args + i; /* there is no GC, can do this */
         iter->list.next = sc_alloc(ctx, sizeof(res));
         iter = iter->list.next;
@@ -363,25 +333,25 @@ static struct sc_rt_val list(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_
     return res;
 }
 
-static struct sc_rt_val cons(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs) {
-    struct sc_rt_val res = { 0 };
+static sc_value cons(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    sc_value res = { 0 };
     if (nargs != 2) return res;
 
     return list(ctx, args, nargs);
 }
 
-static struct sc_rt_val car(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs) {
-    struct sc_rt_val res = { 0 };
+static sc_value car(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    sc_value res = { 0 };
     if (nargs != 1) return res;
-    if (args[0].type != RT_LIST) return res;
+    if (args[0].type != SC_LIST_VAL) return res;
 
     return *args[0].list.current;
 }
 
-static struct sc_rt_val cdr(struct sc_ctx *ctx, struct sc_rt_val *args, uint16_t nargs) {
-    struct sc_rt_val res = { 0 };
+static sc_value cdr(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    sc_value res = { 0 };
     if (nargs != 1) return res;
-    if (args[0].type != RT_LIST) return res;
+    if (args[0].type != SC_LIST_VAL) return res;
 
     return *args[0].list.next;
 }
