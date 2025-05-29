@@ -9,6 +9,8 @@
 #include "sc_priv.h"
 #include "config.h"
 
+void print_value(sc_value *val);
+
 const char *sc_err = NULL;
 static const char *buf = NULL;
 
@@ -24,6 +26,7 @@ static struct sc_priv_fns priv[] = {
     { false, "cdr", cdr },
     { false, "begin", begin },
     { true, "define", define },
+    { true, "lambda", lambda },
     { false, NULL, NULL },
 };
 
@@ -94,6 +97,7 @@ flt:
             }
         }
     }
+
     append_tok(ctx, &toks_len, &toks_size, SC_END_TOK);
     ctx->heap = calloc(HEAP_SIZE, sizeof(uint8_t));
 
@@ -116,25 +120,28 @@ flt:
     return res;
 }
 
-static bool isspecial(char c) {
-    return c == '(' || c == ')';
-}
+static bool isspecial(char c) { return c == '(' || c == ')'; }
 
 static sc_value eval_ast(struct sc_ctx *ctx) {
     struct sc_ast_expr *expr = (void*) (ctx->heap + ctx->_ctx->eval_offset);
     ctx->_ctx->eval_offset += sizeof(*expr);
     uint8_t fn_index = sizeof(priv) / sizeof(priv[0]) - 1;
-    uint16_t len = 0;
-    const char *it = buf + expr->ident;
-    while (!isspace(*it) && !isspecial(*it)) { it++; len++; }
+    size_t len = strcspn(buf + expr->ident, " ()");;
 
-    it = buf + expr->ident;
+    char *it = alloc_ident(ctx, expr->ident);
     for (uint8_t i = 0; priv[i].name != NULL; i++) {
         if (strncmp(it, priv[i].name, len) == 0) {
             fn_index = i; break;
         }
     }
-    if (priv[fn_index].name == NULL) return (sc_value) {0};
+    struct sc_stack_kv *maybe = NULL;
+
+    if (priv[fn_index].name == NULL) {
+        char buffer[len + 1]; memcpy(buffer, it, len); buffer[len] = 0;
+        maybe = stack_find(ctx->_stack, buffer);
+        if (maybe == NULL)
+            return (sc_value) {0};
+    }
     sc_value *args = sc_alloc(ctx, expr->arg_count * sizeof(*args));
 
     if (priv[fn_index].lazy) {
@@ -155,6 +162,8 @@ static sc_value eval_ast(struct sc_ctx *ctx) {
             else args[i] = get_val(ctx, *type);
         }
     }
+    if (maybe != NULL)
+        return eval_lambda(ctx, &maybe->value, args, expr->arg_count);
     return priv[fn_index].run(ctx, args, expr->arg_count);
 }
 
@@ -178,15 +187,39 @@ static sc_value get_val(struct sc_ctx *ctx, uint8_t type) {
         memcpy(res.str, buf + val->value, len);
         res.str[len] = 0;
     } else if (type == SC_AST_IDENT) {
-        size_t len = strcspn(buf + val->value, " )");
-        char buffer[len + 1];
-        memcpy(buffer, buf + val->value, len);
-        buffer[len] = 0;
+        size_t len = strcspn(buf + val->value, " ()");
+        char buffer[len + 1]; memcpy(buffer, buf + val->value, len); buffer[len] = 0;
         struct sc_stack_kv *maybe = stack_find(ctx->_stack, buffer);
         if (maybe != NULL)
             res = maybe->value;
     }
 
+    return res;
+}
+
+static sc_value eval_lambda(struct sc_ctx *ctx, sc_value *lambda, sc_value *args, uint16_t nargs) {
+    if (lambda->lambda.arg_count != nargs) return (sc_value) {0};
+    push_frame(ctx);
+    struct sc_ast_expr *l_args = (void*) ctx->heap + lambda->lambda.args;
+
+    if (lambda->lambda.arg_count > 0) {
+        struct sc_stack_kv *val = frame_add(ctx);
+        val->ident = alloc_ident(ctx, l_args->ident);
+        val->value = args[0];
+        uint8_t *type = ctx->heap + lambda->lambda.args + sizeof(*l_args);
+
+        for (uint16_t i = 1; i < lambda->lambda.arg_count; i++) {
+            struct sc_ast_val *v = (void*) type;
+            val = frame_add(ctx);
+            val->ident = alloc_ident(ctx, v->value);
+            val->value = args[i];
+            type += sizeof(*v);
+        }
+    }
+
+    sc_value res = eval_at(ctx, lambda->lambda.body);
+
+    pop_frame(ctx->_stack);
     return res;
 }
 
@@ -247,6 +280,15 @@ static void append_loc(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_loc l
     ctx->locs[(*len)++] = loc;
 }
 
+static char *get_ident(struct sc_ctx *ctx, struct sc_ast_val *val) {
+    const char *ident_s = buf + val->value;
+    size_t len = strcspn(ident_s, " ()");
+    char *ident = sc_alloc(ctx, len + 1);
+    memcpy(ident, ident_s, len);
+    ident[len] = 0;
+    return ident;
+}
+
 static void push_frame(struct sc_ctx *ctx) {
     struct sc_stack_node *n = sc_alloc(ctx, sizeof(*n));
 
@@ -300,7 +342,15 @@ static struct sc_stack_kv *global_add(struct sc_ctx *ctx) {
 }
 
 static struct sc_stack_kv *frame_add(struct sc_ctx *ctx) {
-    return NULL;
+    struct sc_stack_kv *kv = sc_alloc(ctx, sizeof(*kv));
+    if (ctx->_stack->tail->first_value == NULL) {
+        ctx->_stack->tail->first_value = kv;
+        ctx->_stack->tail->last_value = kv;
+    } else {
+        ctx->_stack->tail->last_value->next = kv;
+        ctx->_stack->tail->last_value = kv;
+    }
+    return kv;
 }
 
 void *sc_alloc(struct sc_ctx *ctx, uint16_t size) {
@@ -325,6 +375,14 @@ static sc_value eval_at(struct sc_ctx *ctx, uint16_t addr) {
 static bool has_real(sc_value *args, uint16_t nargs) {
     for (uint16_t i = 0; i < nargs; i++) { if (args[i].type == SC_REAL_VAL) return true; }
     return false;
+}
+
+static char *alloc_ident(struct sc_ctx *ctx, uint16_t addr) {
+    size_t len = strcspn(buf + addr, " ()");
+    char *buffer = sc_alloc(ctx, len + 1);
+    memcpy(buffer, buf + addr, len);
+    buffer[len] = 0;
+    return buffer;
 }
 
 /* builtin routines */
@@ -435,17 +493,20 @@ static sc_value begin(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) { retu
 static sc_value define(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     sc_value res = { 0 };
     if (nargs != 2) return res;
-    if (ctx->heap[args[0].lazy_addr] != SC_AST_IDENT) return res;
-    struct sc_ast_val *v = (void*) ctx->heap + args[0].lazy_addr;
-    const char *ident_str = buf + v->value;
-    size_t len = strcspn(ident_str, " ");
-    char *ident = sc_alloc(ctx, len + 1);
-    memcpy(ident, ident_str, len);
-    ident[len] = 0;
+    char *ident = get_ident(ctx, (void*) ctx->heap + args[0].lazy_addr);
     struct sc_stack_kv *kv = global_add(ctx);
     kv->ident = ident;
     kv->value = eval_at(ctx, args[1].lazy_addr);
-    res.boolean = true;
-    res.type = SC_BOOL_VAL;
+    return sc_bool(true);
+}
+
+static sc_value lambda(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    sc_value res = { 0 };
+    if (nargs != 2) return res;
+    res.type = SC_LAMBDA_VAL;
+    struct sc_ast_expr *l_args = (void*) ctx->heap + args[0].lazy_addr;
+    res.lambda.arg_count = l_args->arg_count + 1;
+    res.lambda.args = args[0].lazy_addr;
+    res.lambda.body = args[1].lazy_addr;
     return res;
 }

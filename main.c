@@ -4,12 +4,12 @@
 
 #include "src/sc.h"
 
-static void print_value(sc_value *val);
+void print_value(sc_value *val);
 
 int main()
 {
     struct sc_ctx ctx = { 0 };
-    const char *prog = "(begin (define x 10) (+ x))";
+    const char *prog = "(begin (define pow (lambda (x) (* x x))) (pow 8))";
 
     sc_value res = sc_eval(&ctx, prog, strlen(prog));
 
@@ -24,7 +24,7 @@ int main()
     return 0;
 }
 
-static void print_value(sc_value *val)
+void print_value(sc_value *val)
 {
     if (val == NULL || val->type == SC_NOTHING_VAL)
         printf("nil");

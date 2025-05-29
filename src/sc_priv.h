@@ -9,6 +9,8 @@
 #error "Heap size cannot be more than 65535 (UINT16_MAX) bytes"
 #endif
 
+#define sc_bool(val) ((sc_value) { .type = SC_BOOL_VAL, .boolean = val })
+
 enum sc_node_types {
     SC_AST_EXPR = 1,
     SC_AST_IDENT,
@@ -65,6 +67,7 @@ struct sc_stack {
 static bool isspecial(char c);
 static sc_value eval_ast(struct sc_ctx *ctx);
 static sc_value get_val(struct sc_ctx *ctx, uint8_t type);
+static sc_value eval_lambda(struct sc_ctx *ctx, sc_value *lambda, sc_value *args, uint16_t nargs);
 static void parse_expr(struct sc_ctx *ctx);
 static void parse_val(struct sc_ctx *ctx);
 static void append_tok(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_tok tk);
@@ -80,6 +83,8 @@ static struct sc_stack_kv *frame_add(struct sc_ctx *ctx);
 /* helper fns */
 static sc_value eval_at(struct sc_ctx *ctx, uint16_t addr);
 static bool has_real(sc_value *args, uint16_t nargs);
+static char *get_ident(struct sc_ctx *ctx, struct sc_ast_val *val);
+static char *alloc_ident(struct sc_ctx *ctx, uint16_t addr);
 
 /* builtin routines */
 static sc_value plus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
@@ -93,5 +98,6 @@ static sc_value car(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value cdr(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value begin(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value define(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value lambda(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 
 #endif

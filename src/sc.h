@@ -26,6 +26,7 @@ enum sc_val_type {
     SC_BOOL_VAL,
     SC_STRING_VAL,
     SC_LIST_VAL,
+    SC_LAMBDA_VAL,
 
     SC_LAZY_EXPR_VAL = INT8_MAX,
 };
@@ -66,6 +67,11 @@ struct sc_val {
             struct sc_val *current;
             struct sc_val *next;
         } list;
+        struct {
+            uint16_t arg_count;
+            uint16_t args;
+            uint16_t body;
+        } lambda;
     };
 };
 
