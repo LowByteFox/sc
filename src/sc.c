@@ -19,13 +19,21 @@ static struct sc_priv_fns priv[] = {
     { false, "-", minus },
     { false, "*", mult },
     { false, "/", divide },
+    { false, "=", eql, },
+    { false, "<", lt, },
+    { false, "<=", lte, },
+    { false, ">", gt, },
+    { false, ">=", gte, },
     { false, "len", len },
     { false, "list", list },
     { false, "cons", cons },
     { false, "car", car },
     { false, "cdr", cdr },
     { false, "begin", begin },
+    // { false, "eq?", eq },
+    // { false, "equal?", equal },
     { true, "define", define },
+    { true, "scope-define", define_scope },
     { true, "lambda", lambda },
     { false, NULL, NULL },
 };
@@ -397,50 +405,37 @@ static sc_value plus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     return res;
 }
 
-static sc_value minus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    sc_value res = { 0 };
-    bool real = has_real(args, nargs);
-    res.type = real ? SC_REAL_VAL : SC_NUM_VAL;
-
-    if (nargs == 0) return res;
-
-    if (real) res.real = sc_get_number(args[0]); else res.number = sc_get_number(args[0]);
-
-    for (uint16_t i = 1; i < nargs; i++)
-        if (real) res.real -= sc_get_number(args[i]); else res.number -= sc_get_number(args[i]);
-
-    return res;
+#define gen_math_fns(name, op) static sc_value name(struct sc_ctx *ctx,\
+    sc_value *args, uint16_t nargs) {\
+    sc_value res = { 0 }; bool real = has_real(args, nargs);\
+    res.type = real ? SC_REAL_VAL : SC_NUM_VAL;\
+    if (nargs == 0) return res;\
+    if (real) res.real = sc_get_number(args[0]); else res.number = sc_get_number(args[0]);\
+    for (uint16_t i = 1; i < nargs; i++)\
+        if (real) res.real op sc_get_number(args[i]); else res.number op sc_get_number(args[i]);\
+    return res;\
 }
 
-static sc_value mult(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    sc_value res = { 0 };
-    bool real = has_real(args, nargs);
-    res.type = real ? SC_REAL_VAL : SC_NUM_VAL;
-
-    if (nargs == 0) return res;
-
-    if (real) res.real = sc_get_number(args[0]); else res.number = sc_get_number(args[0]);
-
-    for (uint16_t i = 1; i < nargs; i++)
-        if (real) res.real *= sc_get_number(args[i]); else res.number *= sc_get_number(args[i]);
-
-    return res;
+#define gen_comp_fns(name, op) static sc_value name(struct sc_ctx *ctx,\
+    sc_value *args, uint16_t nargs) {\
+    sc_value res = { 0 }; res.type = SC_BOOL_VAL;\
+    res.boolean = true;\
+    if (nargs == 0) return res;\
+    for (uint16_t i = 0; i < nargs - 1; i++) {\
+        if (!(sc_get_number(args[i]) op sc_get_number(args[i + 1]))) {\
+             res.boolean = false; return res;\
+        }\
+    } return res;\
 }
 
-static sc_value divide(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    sc_value res = { 0 };
-    bool real = has_real(args, nargs);
-    res.type = real ? SC_REAL_VAL : SC_NUM_VAL;
-
-    if (nargs == 0) return res;
-
-    if (real) res.real = sc_get_number(args[0]); else res.number = sc_get_number(args[0]);
-
-    for (uint16_t i = 1; i < nargs; i++)
-        if (real) res.real /= sc_get_number(args[i]); else res.number /= sc_get_number(args[i]);
-
-    return res;
-}
+gen_math_fns(minus, -=);
+gen_math_fns(mult, *=);
+gen_math_fns(divide, /=);
+gen_comp_fns(eql, ==);
+gen_comp_fns(lt, <);
+gen_comp_fns(lte, <=);
+gen_comp_fns(gt, >);
+gen_comp_fns(gte, >=);
 
 static sc_value len(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     sc_value res = { 0 };
@@ -495,6 +490,16 @@ static sc_value define(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (nargs != 2) return res;
     char *ident = get_ident(ctx, (void*) ctx->heap + args[0].lazy_addr);
     struct sc_stack_kv *kv = global_add(ctx);
+    kv->ident = ident;
+    kv->value = eval_at(ctx, args[1].lazy_addr);
+    return sc_bool(true);
+
+}
+static sc_value define_scope(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    sc_value res = { 0 };
+    if (nargs != 2) return res;
+    char *ident = get_ident(ctx, (void*) ctx->heap + args[0].lazy_addr);
+    struct sc_stack_kv *kv = frame_add(ctx);
     kv->ident = ident;
     kv->value = eval_at(ctx, args[1].lazy_addr);
     return sc_bool(true);

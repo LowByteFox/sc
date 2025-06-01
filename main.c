@@ -9,7 +9,7 @@ void print_value(sc_value *val);
 int main()
 {
     struct sc_ctx ctx = { 0 };
-    const char *prog = "(begin (define pow (lambda (x) (* x x))) (pow 8))";
+    const char *prog = "(<= 0 0 0 1)";
 
     sc_value res = sc_eval(&ctx, prog, strlen(prog));
 
