@@ -30,8 +30,8 @@ static struct sc_priv_fns priv[] = {
     { false, "car", car },
     { false, "cdr", cdr },
     { false, "begin", begin },
-    // { false, "eq?", eq },
-    // { false, "equal?", equal },
+    { false, "eq?", eq },
+    { false, "equal?", eq },
     { true, "define", define },
     { true, "scope-define", define_scope },
     { true, "lambda", lambda },
@@ -418,24 +418,12 @@ static sc_value plus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 
 #define gen_comp_fns(name, op) static sc_value name(struct sc_ctx *ctx,\
     sc_value *args, uint16_t nargs) {\
-    sc_value res = { 0 }; res.type = SC_BOOL_VAL;\
-    res.boolean = true;\
-    if (nargs == 0) return res;\
-    for (uint16_t i = 0; i < nargs - 1; i++) {\
-        if (!(sc_get_number(args[i]) op sc_get_number(args[i + 1]))) {\
-             res.boolean = false; return res;\
-        }\
-    } return res;\
+    if (nargs == 0) return sc_bool(true);\
+    for (uint16_t i = 0; i < nargs - 1; i++)\
+        if (!(sc_get_number(args[i]) op sc_get_number(args[i + 1])))\
+             return sc_bool(false);\
+    return sc_bool(true);\
 }
-
-gen_math_fns(minus, -=);
-gen_math_fns(mult, *=);
-gen_math_fns(divide, /=);
-gen_comp_fns(eql, ==);
-gen_comp_fns(lt, <);
-gen_comp_fns(lte, <=);
-gen_comp_fns(gt, >);
-gen_comp_fns(gte, >=);
 
 static sc_value len(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     sc_value res = { 0 };
@@ -485,6 +473,42 @@ static sc_value cdr(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 
 static sc_value begin(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) { return args[nargs - 1]; }
 
+static bool val_eql(sc_value a, sc_value b) {
+    if (a.type != b.type) return false;
+    switch (a.type) {
+    case SC_NUM_VAL:
+        return a.number == b.number;
+    case SC_REAL_VAL:
+        return a.real == b.real;
+    case SC_BOOL_TOK:
+        return a.boolean == b.boolean;
+    case SC_STRING_TOK:
+        return strcmp(a.str, b.str) == 0;
+    case SC_LIST_VAL:
+        {
+            sc_value *iter_a = &a; sc_value *iter_b = &b;
+            while (iter_a->list.current != NULL && iter_b->list.current != NULL) {
+                if (!val_eql(*iter_a->list.current, *iter_b->list.current))
+                    return false;
+                iter_a = iter_a->list.next; iter_b = iter_b->list.next;
+            }
+            if (iter_a->list.current == NULL && iter_b->list.current == NULL) return true;
+        }
+    }
+    return false;
+}
+
+static sc_value eq(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    sc_value res = {0};
+    res.type = SC_BOOL_VAL;
+    res.boolean = true;
+    if (nargs == 0) return res;
+    for (uint16_t i = 0; i < nargs - 1; i++)
+        if (!val_eql(args[i], args[i + 1]))
+            return sc_bool(false);
+    return res;
+}
+
 static sc_value define(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     sc_value res = { 0 };
     if (nargs != 2) return res;
@@ -495,6 +519,7 @@ static sc_value define(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     return sc_bool(true);
 
 }
+
 static sc_value define_scope(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     sc_value res = { 0 };
     if (nargs != 2) return res;
@@ -515,3 +540,13 @@ static sc_value lambda(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     res.lambda.body = args[1].lazy_addr;
     return res;
 }
+
+/* generated functions */
+gen_math_fns(minus, -=);
+gen_math_fns(mult, *=);
+gen_math_fns(divide, /=);
+gen_comp_fns(eql, ==);
+gen_comp_fns(lt, <);
+gen_comp_fns(lte, <=);
+gen_comp_fns(gt, >);
+gen_comp_fns(gte, >=);

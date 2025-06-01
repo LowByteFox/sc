@@ -107,6 +107,5 @@ static sc_value define(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value define_scope(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value lambda(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value eq(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
-static sc_value equal(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 
 #endif

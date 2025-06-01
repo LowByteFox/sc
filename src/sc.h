@@ -41,12 +41,6 @@ typedef uint16_t sc_loc;
 typedef struct sc_val sc_value;
 typedef sc_value (*sc_fn)(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 
-// struct sc_kv {
-//     sc_tok val_type; /* type of value */
-//     uint16_t name; /* offset in heap */
-//     uint16_t next; /* index to next global */
-// };
-
 struct sc_ctx {
     uint8_t *heap; /* <= UINT16_MAX */
     sc_tok *tokens;
