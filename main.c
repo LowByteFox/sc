@@ -9,7 +9,7 @@ void print_value(sc_value *val);
 int main()
 {
     struct sc_ctx ctx = { 0 };
-    const char *prog = "(eq? (list 1 2 3) (list 1 2 3) (list 1 2 3))";
+    const char *prog = "(begin (define fib (lambda (n) (if (<= 2 n) (+ (fib (- n 1 )) (fib (- n 2))) n))) (fib 10))";
 
     sc_value res = sc_eval(&ctx, prog, strlen(prog));
 

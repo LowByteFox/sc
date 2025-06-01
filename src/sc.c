@@ -35,6 +35,8 @@ static struct sc_priv_fns priv[] = {
     { true, "define", define },
     { true, "scope-define", define_scope },
     { true, "lambda", lambda },
+    { true, "if", cond },
+    { true, "cond", cond },
     { false, NULL, NULL },
 };
 
@@ -362,6 +364,10 @@ static struct sc_stack_kv *frame_add(struct sc_ctx *ctx) {
 }
 
 void *sc_alloc(struct sc_ctx *ctx, uint16_t size) {
+    if ((int) ctx->_ctx->arena_index + size >= HEAP_SIZE) {
+        fprintf(stderr, "sc: heap exhausted!\n");
+        abort();
+    }
     void *ptr = ctx->heap + ctx->_ctx->arena_index;
     ctx->_ctx->arena_index += size;
     return ptr;
@@ -538,6 +544,23 @@ static sc_value lambda(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     res.lambda.arg_count = l_args->arg_count + 1;
     res.lambda.args = args[0].lazy_addr;
     res.lambda.body = args[1].lazy_addr;
+    return res;
+}
+
+static sc_value cond(struct sc_ctx *ctx, sc_value *args, uint16_t nargs)
+{
+    sc_value res = { 0 }; uint16_t i = 0;
+    if (nargs < 2) return res;
+    for (; i < nargs; i += 2) {
+        sc_value cond = eval_at(ctx, args[i].lazy_addr);
+        if (cond.type != SC_BOOL_VAL) goto skip;
+        if (cond.boolean == true) return eval_at(ctx, args[i + 1].lazy_addr);
+        continue;
+skip:
+        while(i + 2 < nargs) { i += 2; }
+    }
+    if (i - nargs == 1) /* else */
+        return eval_at(ctx, args[nargs - 1].lazy_addr);
     return res;
 }
 
