@@ -110,6 +110,9 @@ static sc_value mult(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value divide(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value lt(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value lte(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value and(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value or(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value not(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value eql(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value lte(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value gt(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
@@ -126,5 +129,11 @@ static sc_value lambda(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value cond(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value call(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value eq(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+
+static sc_value rnd(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value sc_abs(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value sc_sqrt(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value sc_expt(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value mean(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 
 #endif

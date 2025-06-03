@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "src/sc.h"
 
@@ -8,8 +9,9 @@ void print_value(sc_value *val);
 
 int main()
 {
+    srand(time(NULL));
     struct sc_ctx ctx = { 0 };
-    const char *prog = "(len \"uwu owo\")";
+    const char *prog = "(sqrt 2)";
 
     sc_value res = sc_eval(&ctx, prog, strlen(prog));
 

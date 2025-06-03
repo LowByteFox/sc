@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <ctype.h>
 #include <stdbool.h>
+#include <math.h>
 
 #include "sc.h"
 #include "sc_priv.h"
@@ -22,10 +23,9 @@ static struct sc_priv_fns priv[] = {
     { false, "<=", lte, },
     { false, ">", gt, },
     { false, ">=", gte, },
-    /* { false, "and", and },
-     * { false, "or", or },
-     * { false, "not", not },
-     */
+    { false, "and", and },
+    { false, "or", or },
+    { false, "not", not },
     { false, "car", car },
     { false, "cdr", cdr },
     { false, "cons", cons },
@@ -56,19 +56,19 @@ static struct sc_priv_fns priv[] = {
     { true, "λ", lambda },
     { true, "let", let },
     { false, "call", call },
+    { false, "random", rnd },
+    { false, "abs", sc_abs },
+    { false, "sqrt", sc_sqrt },
+    { false, "expt", sc_expt },
+    { false, "mean", mean },
     /* { true, "while", while_loop },
      * { true, "until", until_loop },
      * { false, "display", display },
      * { false, "newline", newline },
      * { false, "read", read },
-     * { false, "max", max },
-     * { false, "min", min },
-     * { false, "abs", abs },
-     * { false, "sqrt", sqrt },
-     * { false, "expt", expt },
-     * { false, "random", rand },
-     * { false, "mean", mean },
      * { false, "median", median },
+     * { false, "max", sc_max },
+     * { false, "min", sc_min },
      */
     { false, "eq?", eq },
     { false, "equal?", eq },
@@ -97,7 +97,7 @@ sc_value sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen) {
             continue;
         }
 
-        if (isdigit(c)) {
+        if (isdigit(c) || c == '-') {
             bool parsed_float = false;
             append_tok(ctx, &toks_len, &toks_size, SC_NUM_TOK);
             append_loc(ctx, &locs_len, &locs_size, i);
@@ -547,6 +547,16 @@ static sc_value plus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     return sc_bool(true);\
 }
 
+#define gen_log_fns(name, op) static sc_value name(struct sc_ctx *ctx,\
+    sc_value *args, uint16_t nargs) {\
+    if (nargs == 0) return sc_bool(true);\
+    for (uint16_t i = 0; i < nargs - 1; i++) {\
+        if (args[i].type != SC_BOOL_VAL) return sc_bool(false);\
+        if (!(args[i].boolean op args[i + 1].boolean))\
+             return sc_bool(false);}\
+    return sc_bool(true);\
+}
+
 static sc_value len(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (nargs != 1) return sc_nil;
     else if (args[0].type == SC_STRING_VAL) return sc_num(strlen(args[0].str));
@@ -682,6 +692,48 @@ static sc_value call(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     return eval_lambda(ctx, (args + 0), (args + 1), nargs - 1);
 }
 
+static sc_value not(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 1) return sc_bool(false);
+    else if (args[0].type != SC_BOOL_VAL) return sc_bool(false);
+    return sc_bool(!args[0].boolean);
+}
+
+static sc_value rnd(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs == 1 && args[0].type == SC_NUM_VAL)
+        return sc_num(random() % args[0].number);
+    else if (nargs == 1 && args[0].type == SC_REAL_VAL)
+        return sc_real(((float) random()/(float) RAND_MAX) * args[0].real);
+    return sc_num(random() % UINT64_MAX);
+}
+
+static sc_value sc_abs(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 1) return sc_nil;
+    double res = fabs(sc_get_number(args[0]));
+    double dec = modf(res, &res);
+    return dec == 0.0 ? sc_num((uint64_t) res) : sc_real(res + dec);
+}
+
+static sc_value sc_sqrt(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 1) return sc_nil;
+    double res = sqrt(sc_get_number(args[0]));
+    double dec = modf(res, &res);
+    return dec == 0.0 ? sc_num((uint64_t) res) : sc_real(res + dec);
+}
+
+static sc_value sc_expt(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 2) return sc_nil;
+    double res = pow(sc_get_number(args[0]), sc_get_number(args[1]));
+    double dec = modf(res, &res);
+    return dec == 0.0 ? sc_num((uint64_t) res) : sc_real(res + dec);
+}
+
+static sc_value mean(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs == 0) return sc_num(0);
+    double res = sc_get_number(plus(ctx, args, nargs)) / (double) nargs;
+    double dec = modf(res, &res);
+    return dec == 0.0 ? sc_num((uint64_t) res) : sc_real(res + dec);
+}
+
 /* generated functions */
 gen_math_fns(minus, -=);
 gen_math_fns(mult, *=);
@@ -691,3 +743,5 @@ gen_comp_fns(lt, <);
 gen_comp_fns(lte, <=);
 gen_comp_fns(gt, >);
 gen_comp_fns(gte, >=);
+gen_log_fns(and, &&);
+gen_log_fns(or, ||);
