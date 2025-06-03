@@ -13,7 +13,7 @@
 const char *sc_err = NULL;
 static const char *buf = NULL;
 
-static struct sc_priv_fns priv[] = {
+static struct sc_fns priv[] = {
     { false, "+", plus },
     { false, "-", minus },
     { false, "*", mult },
@@ -72,6 +72,7 @@ static struct sc_priv_fns priv[] = {
      */
     { false, "eq?", eq },
     { false, "equal?", eq },
+    { false, "error", error },
     { false, NULL, NULL },
 };
 
@@ -176,6 +177,7 @@ static sc_value eval_ast(struct sc_ctx *ctx) {
     ctx->_ctx->eval_offset += sizeof(*expr);
     uint8_t fn_index = sizeof(priv) / sizeof(priv[0]) - 1;
     size_t len = strcspn(buf + expr->ident, " ()");;
+    bool user_fn = false;
 
     char *it = alloc_ident(ctx, expr->ident);
     for (uint8_t i = 0; priv[i].name != NULL; i++) {
@@ -186,13 +188,21 @@ static sc_value eval_ast(struct sc_ctx *ctx) {
     struct sc_stack_kv *maybe = NULL;
 
     if (priv[fn_index].name == NULL) {
-        char buffer[len + 1]; memcpy(buffer, it, len); buffer[len] = 0;
-        maybe = stack_find(ctx->_stack, buffer);
-        if (maybe == NULL)
-            return (sc_value) {0};
+        for (uint8_t i = 0; ctx->user_fns[i].name != NULL; i++) {
+            if (strncmp(it, ctx->user_fns[i].name, len) == 0) {
+                fn_index = i; user_fn = true; break;
+            }
+        }
+        if (ctx->user_fns[fn_index].name == NULL) {
+            char buffer[len + 1]; memcpy(buffer, it, len); buffer[len] = 0;
+            maybe = stack_find(ctx->_stack, buffer);
+            if (maybe == NULL)
+                return (sc_value) {0};
+        }
     }
     sc_free(ctx, it);
     sc_value args[expr->arg_count];
+    memset(args, 0, sizeof(sc_value) * expr->arg_count);
 
     if (priv[fn_index].lazy) {
         for (uint16_t i = 0; i < expr->arg_count; i++) {
@@ -210,13 +220,18 @@ static sc_value eval_ast(struct sc_ctx *ctx) {
             uint8_t *type = (void*) (ctx->heap + ctx->_ctx->eval_offset);
             if (*type == SC_AST_EXPR) args[i] = eval_ast(ctx);
             else args[i] = get_val(ctx, *type);
+            if (args[i].type == SC_ERROR_VAL) {
+                free_args(ctx, args, expr->arg_count); return args[i];
+            }
         }
     }
     sc_value res = { 0 };
     if (maybe != NULL)
         res = eval_lambda(ctx, &maybe->value, args, expr->arg_count);
-    else
+    else if (!user_fn)
         res = priv[fn_index].run(ctx, args, expr->arg_count);
+    else
+        res = ctx->user_fns[fn_index].run(ctx, args, expr->arg_count);
     free_args(ctx, args, expr->arg_count);
     return res;
 }
@@ -558,7 +573,7 @@ static sc_value plus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 }
 
 static sc_value len(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    if (nargs != 1) return sc_nil;
+    if (nargs != 1) return sc_error("len: incorrect amount of arguments!");
     else if (args[0].type == SC_STRING_VAL) return sc_num(strlen(args[0].str));
     else if (args[0].type == SC_LIST_VAL) {
         int64_t len = 0;
@@ -585,23 +600,20 @@ static sc_value list(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 }
 
 static sc_value cons(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    if (nargs != 2) return sc_nil;
-
+    if (nargs != 2) return sc_error("cons: incorrect amount of arguments!");;
     return list(ctx, args, nargs);
 }
 
 static sc_value car(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    sc_value res = { 0 };
-    if (nargs != 1) return res;
-    if (args[0].type != SC_LIST_VAL) return res;
+    if (nargs != 1) return sc_error("car: incorrect amount of arguments!");;
+    if (args[0].type != SC_LIST_VAL) return sc_error("car: expected a list!");
 
     return dup_val(*args[0].list.current);
 }
 
 static sc_value cdr(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    sc_value res = { 0 };
-    if (nargs != 1) return res;
-    if (args[0].type != SC_LIST_VAL) return res;
+    if (nargs != 1) return sc_error("cdr: incorrect amount of arguments!");;
+    if (args[0].type != SC_LIST_VAL) return sc_error("cdr: expected a list!");
 
     return dup_val(*args[0].list.next);
 }
@@ -642,7 +654,7 @@ static sc_value eq(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 }
 
 static sc_value define(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    if (nargs != 2) return sc_nil;
+    if (nargs != 2) return sc_error("define: incorrect amount of arguments!");
     char *ident = get_ident(ctx, (void*) ctx->heap + args[0].lazy_addr);
     struct sc_stack_kv *kv = global_add(ctx);
     kv->ident = ident;
@@ -651,8 +663,14 @@ static sc_value define(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 }
 
 static sc_value let(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    if (nargs != 2) return sc_nil;
+    if (nargs != 2) return sc_error("let: incorrect amount of arguments!");
     char *ident = get_ident(ctx, (void*) ctx->heap + args[0].lazy_addr);
+    struct sc_stack_kv *maybe = stack_find(ctx->_stack, ident);
+    if (maybe != NULL) {
+        sc_free(ctx, ident);
+        maybe->value = eval_at(ctx, args[1].lazy_addr);
+        return sc_bool(true);
+    }
     struct sc_stack_kv *kv = frame_add(ctx);
     kv->ident = ident;
     kv->value = eval_at(ctx, args[1].lazy_addr);
@@ -688,7 +706,8 @@ skip:
 }
 
 static sc_value call(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    if (nargs < 2) return sc_nil;
+    if (nargs < 2) return sc_error("call: incorrect amount of arguments!");
+    if (args[0].type != SC_LAMBDA_VAL) return sc_error("call: expected first argument to be a function!");
     return eval_lambda(ctx, (args + 0), (args + 1), nargs - 1);
 }
 
@@ -707,31 +726,36 @@ static sc_value rnd(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 }
 
 static sc_value sc_abs(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    if (nargs != 1) return sc_nil;
+    if (nargs != 1) return sc_error("abs: incorrect amount of arguments!");
     double res = fabs(sc_get_number(args[0]));
     double dec = modf(res, &res);
     return dec == 0.0 ? sc_num((uint64_t) res) : sc_real(res + dec);
 }
 
 static sc_value sc_sqrt(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    if (nargs != 1) return sc_nil;
+    if (nargs != 1) return sc_error("sqrt: incorrect amount of arguments!");
     double res = sqrt(sc_get_number(args[0]));
     double dec = modf(res, &res);
     return dec == 0.0 ? sc_num((uint64_t) res) : sc_real(res + dec);
 }
 
 static sc_value sc_expt(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    if (nargs != 2) return sc_nil;
+    if (nargs != 2) return sc_error("expt: incorrect amount of arguments");
     double res = pow(sc_get_number(args[0]), sc_get_number(args[1]));
     double dec = modf(res, &res);
     return dec == 0.0 ? sc_num((uint64_t) res) : sc_real(res + dec);
 }
 
 static sc_value mean(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    if (nargs == 0) return sc_num(0);
+    if (nargs == 0) return sc_error("mean: incorrect amount of arguments!");
     double res = sc_get_number(plus(ctx, args, nargs)) / (double) nargs;
     double dec = modf(res, &res);
     return dec == 0.0 ? sc_num((uint64_t) res) : sc_real(res + dec);
+}
+
+static sc_value error(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 1) return sc_error("error: incorrect amount of arguments!");
+    return sc_error(dup_val(args[0]).str);
 }
 
 /* generated functions */

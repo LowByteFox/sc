@@ -7,11 +7,18 @@
 
 void print_value(sc_value *val);
 
+static sc_value display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+struct sc_fns funs[] = {
+    { false, "my_display", display },
+    { false, NULL, NULL }
+};
+
 int main()
 {
     srand(time(NULL));
     struct sc_ctx ctx = { 0 };
-    const char *prog = "(sqrt 2)";
+    ctx.user_fns = funs;
+    const char *prog = "(begin (let x 1) (my_display x) (let x 2) (my_display x))";
 
     sc_value res = sc_eval(&ctx, prog, strlen(prog));
 
@@ -19,6 +26,14 @@ int main()
         fprintf(stderr, "sc error: %s\n", sc_err);
         abort();
     }
+
+    if (res.type == SC_ERROR_VAL) {
+        fprintf(stderr, "sc runtime error: %s\n", res.err);
+        abort();
+    }
+
+    if (res.type == SC_NOTHING_VAL)
+        return 0;
 
     print_value(&res);
     putchar('\n');
@@ -49,4 +64,11 @@ void print_value(sc_value *val)
         }
         printf(")");
     }
+}
+
+static sc_value display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 1) return sc_error("display: only 1 argument!");
+    print_value(args + 0);
+    putchar('\n');
+    return sc_nil;
 }

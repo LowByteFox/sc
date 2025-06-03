@@ -9,11 +9,6 @@
 #error "Heap size cannot be more than 65535 (UINT16_MAX) bytes"
 #endif
 
-#define sc_nil ((sc_value) { 0 })
-#define sc_num(val) ((sc_value) { .type = SC_NUM_VAL, .number = val })
-#define sc_real(val) ((sc_value) { .type = SC_REAL_VAL, .real = val })
-#define sc_bool(val) ((sc_value) { .type = SC_BOOL_VAL, .boolean = val })
-
 enum sc_node_types {
     SC_AST_EXPR = 1,
     SC_AST_IDENT,
@@ -33,12 +28,6 @@ struct sc_ast_expr {
     uint16_t jump_by; /* when function is lazy, to just skip N bytes over the args */
     uint16_t ident; /* index of the ident in the buffer */
     uint16_t arg_count; /* number of args the expression has */
-};
-
-struct sc_priv_fns {
-    bool lazy;
-    const char *name;
-    sc_fn run;
 };
 
 struct sc_gc {
@@ -129,11 +118,11 @@ static sc_value lambda(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value cond(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value call(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value eq(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
-
 static sc_value rnd(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value sc_abs(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value sc_sqrt(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value sc_expt(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value mean(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value error(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 
 #endif
