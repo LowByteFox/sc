@@ -23,7 +23,7 @@ int main()
     srand(time(NULL));
     struct sc_ctx ctx = { 0 };
     ctx.user_fns = funs;
-    const char *prog = "(fread (fopen \"/etc/passwd\"))";
+    const char *prog = "(begin (let x \"hello\") (my_display x) (my_display x))";
 
     sc_value res = sc_eval(&ctx, prog, strlen(prog));
 

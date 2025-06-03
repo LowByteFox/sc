@@ -255,7 +255,7 @@ static sc_value get_val(struct sc_ctx *ctx, uint8_t type) {
         char buffer[len + 1]; memcpy(buffer, buf + val->value, len); buffer[len] = 0;
         struct sc_stack_kv *maybe = stack_find(ctx->_stack, buffer);
         if (maybe != NULL)
-            res = maybe->value;
+            res = dup_val(maybe->value);
     }
 
     return res;
