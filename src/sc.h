@@ -72,6 +72,8 @@ struct sc_val {
 extern const char *sc_err;
 
 void *sc_alloc(struct sc_ctx *ctx, uint16_t size);
+void sc_free(struct sc_ctx *ctx, void *ptr);
+void sc_dup(void *ptr);
 sc_value sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen);
 
 #endif

@@ -10,6 +10,7 @@
 #endif
 
 #define sc_bool(val) ((sc_value) { .type = SC_BOOL_VAL, .boolean = val })
+#define sc_nil ((sc_value) { 0 })
 
 enum sc_node_types {
     SC_AST_EXPR = 1,
@@ -38,13 +39,19 @@ struct sc_priv_fns {
     sc_fn run;
 };
 
-struct sc_ast_ctx {
+struct sc_gc {
     uint16_t arena_index;
+    uint16_t memory_begin;
+    uint16_t memory_limit;
+};
+
+struct sc_ast_ctx {
     uint16_t tok_limit;
     union {
         uint16_t tok_index;
         uint16_t eval_offset;
     };
+    struct sc_gc gc;
 };
 
 struct sc_stack_kv {
@@ -64,6 +71,12 @@ struct sc_stack {
     struct sc_stack_node *tail;
 };
 
+struct sc_gc_obj {
+    uint16_t size;
+    uint16_t count;
+    uint8_t data[];
+};
+
 static bool isspecial(char c);
 static sc_value eval_ast(struct sc_ctx *ctx);
 static sc_value get_val(struct sc_ctx *ctx, uint8_t type);
@@ -74,17 +87,19 @@ static void append_tok(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_tok t
 static void append_loc(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_loc loc);
 
 static void push_frame(struct sc_ctx *ctx);
-static void pop_frame(struct sc_stack *stack);
+static void pop_frame(struct sc_ctx *ctx, struct sc_stack *stack);
 static struct sc_stack_kv *stack_node_find(struct sc_stack_node *node, const char *ident);
 static struct sc_stack_kv *stack_find(struct sc_stack *stack, const char *ident);
 static struct sc_stack_kv *global_add(struct sc_ctx *ctx);
 static struct sc_stack_kv *frame_add(struct sc_ctx *ctx);
 
 /* helper fns */
+static void free_args(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value eval_at(struct sc_ctx *ctx, uint16_t addr);
 static bool has_real(sc_value *args, uint16_t nargs);
 static char *get_ident(struct sc_ctx *ctx, struct sc_ast_val *val);
 static char *alloc_ident(struct sc_ctx *ctx, uint16_t addr);
+static sc_value dup_val(sc_value val);
 
 /* builtin routines */
 static sc_value plus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
@@ -104,9 +119,10 @@ static sc_value car(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value cdr(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value begin(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value define(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
-static sc_value define_scope(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value let(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value lambda(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value cond(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value call(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value eq(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 
 #endif

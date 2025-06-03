@@ -9,8 +9,6 @@
 #include "sc_priv.h"
 #include "config.h"
 
-void print_value(sc_value *val);
-
 const char *sc_err = NULL;
 static const char *buf = NULL;
 
@@ -32,9 +30,11 @@ static struct sc_priv_fns priv[] = {
     { false, "begin", begin },
     { false, "eq?", eq },
     { false, "equal?", eq },
+    { false, "call", call },
     { true, "define", define },
-    { true, "scope-define", define_scope },
+    { true, "let", let },
     { true, "lambda", lambda },
+    { true, "λ", lambda },
     { true, "if", cond },
     { true, "cond", cond },
     { false, NULL, NULL },
@@ -121,12 +121,16 @@ flt:
         return nul;
     }
 
+    ctx->_ctx->gc.memory_limit = HEAP_SIZE;
     parse_expr(ctx);
     ctx->_stack = &stack;
+    ctx->_ctx->gc.memory_begin = ctx->_ctx->gc.arena_index;
     push_frame(ctx);
     ast_ctx.eval_offset = 0;
     sc_value res = eval_ast(ctx);
     ctx->_ctx = NULL;
+    free(ctx->tokens);
+    free(ctx->locs);
     return res;
 }
 
@@ -152,7 +156,8 @@ static sc_value eval_ast(struct sc_ctx *ctx) {
         if (maybe == NULL)
             return (sc_value) {0};
     }
-    sc_value *args = sc_alloc(ctx, expr->arg_count * sizeof(*args));
+    sc_free(ctx, it);
+    sc_value args[expr->arg_count];
 
     if (priv[fn_index].lazy) {
         for (uint16_t i = 0; i < expr->arg_count; i++) {
@@ -172,9 +177,13 @@ static sc_value eval_ast(struct sc_ctx *ctx) {
             else args[i] = get_val(ctx, *type);
         }
     }
+    sc_value res = { 0 };
     if (maybe != NULL)
-        return eval_lambda(ctx, &maybe->value, args, expr->arg_count);
-    return priv[fn_index].run(ctx, args, expr->arg_count);
+        res = eval_lambda(ctx, &maybe->value, args, expr->arg_count);
+    else
+        res = priv[fn_index].run(ctx, args, expr->arg_count);
+    free_args(ctx, args, expr->arg_count);
+    return res;
 }
 
 static sc_value get_val(struct sc_ctx *ctx, uint8_t type) {
@@ -229,12 +238,12 @@ static sc_value eval_lambda(struct sc_ctx *ctx, sc_value *lambda, sc_value *args
 
     sc_value res = eval_at(ctx, lambda->lambda.body);
 
-    pop_frame(ctx->_stack);
+    pop_frame(ctx, ctx->_stack);
     return res;
 }
 
 static void parse_expr(struct sc_ctx *ctx) {
-    uint16_t start = ctx->_ctx->arena_index;
+    uint16_t start = ctx->_ctx->gc.arena_index;
     struct sc_ast_expr *expr = sc_alloc(ctx, sizeof(*expr));
     expr->type = SC_AST_EXPR;
     ctx->_ctx->tok_index++; /* skip ( */
@@ -260,7 +269,7 @@ static void parse_expr(struct sc_ctx *ctx) {
         current = ctx->tokens[ctx->_ctx->tok_index];
     }
     expr->arg_count = arg_count;
-    expr->jump_by = ctx->_ctx->arena_index - start;
+    expr->jump_by = ctx->_ctx->gc.arena_index - start;
     ctx->_ctx->tok_index++; /* skip ) */
 
     return;
@@ -311,10 +320,18 @@ static void push_frame(struct sc_ctx *ctx) {
     }
 }
 
-static void pop_frame(struct sc_stack *stack) {
+static void pop_frame(struct sc_ctx *ctx, struct sc_stack *stack) {
     struct sc_stack_node *iter = stack->head;
     while (iter->next_frame != NULL && iter->next_frame->next_frame != NULL)
         iter = iter->next_frame;
+    struct sc_stack_kv *i = iter->next_frame->first_value;
+    while (i != NULL) {
+        struct sc_stack_kv *prev = i;
+        sc_free(ctx, i->ident);
+        i = i->next;
+        sc_free(ctx, prev);
+    }
+    sc_free(ctx, iter->next_frame);
     iter->next_frame = NULL;
     stack->tail = iter;
 }
@@ -364,16 +381,75 @@ static struct sc_stack_kv *frame_add(struct sc_ctx *ctx) {
 }
 
 void *sc_alloc(struct sc_ctx *ctx, uint16_t size) {
-    if ((int) ctx->_ctx->arena_index + size >= HEAP_SIZE) {
+    if ((int) ctx->_ctx->gc.arena_index + size >= ctx->_ctx->gc.memory_limit) {
         fprintf(stderr, "sc: heap exhausted!\n");
         abort();
     }
-    void *ptr = ctx->heap + ctx->_ctx->arena_index;
-    ctx->_ctx->arena_index += size;
+
+    /* will run when eval */
+    if (ctx->_ctx->gc.memory_begin != 0) {
+        uint16_t *free_list = (void*) ctx->heap + ctx->_ctx->gc.memory_limit;
+        while (((uintptr_t) free_list) < ((uintptr_t) ctx->heap + HEAP_SIZE)) {
+            if (*free_list > 0) {
+                struct sc_gc_obj *fnd = (void*) ctx->heap + (*free_list);
+                if (fnd->size >= size) {
+                    memset(fnd->data, 0, fnd->size); fnd->count++; *free_list = 0;
+                    return fnd->data;
+                }
+            }
+            free_list++;
+        }
+        struct sc_gc_obj *ptr = (void*) ctx->heap + ctx->_ctx->gc.arena_index;
+        ptr->size = size;
+        ptr->count = 1;
+        ctx->_ctx->gc.arena_index += size + sizeof(struct sc_gc_obj);
+        ctx->_ctx->gc.memory_limit -= sizeof(uint16_t);
+        return ptr->data;
+    }
+
+    void *ptr = (void*) ctx->heap + ctx->_ctx->gc.arena_index;
+    ctx->_ctx->gc.arena_index += size;
+    ctx->_ctx->gc.memory_limit -= sizeof(uint16_t);
+
     return ptr;
 }
 
+void sc_free(struct sc_ctx *ctx, void *ptr) {
+    struct sc_gc_obj *obj = (void*)((uint8_t*) ptr) - sizeof(*obj);
+    if (obj->count > 0) obj->count--;
+    if (obj->count == 0) {
+        uintptr_t address = ((uintptr_t) obj) - ((uintptr_t) ctx->heap);
+        uint16_t *free_list = (void*) ctx->heap + ctx->_ctx->gc.memory_limit;
+        while (((uintptr_t) free_list) < ((uintptr_t) ctx->heap + HEAP_SIZE)) {
+            if (*free_list == 0) {
+                *free_list = (uint16_t) address;
+                break;
+            }
+            free_list++;
+        }
+    }
+}
+
+void sc_dup(void *ptr) {
+    struct sc_gc_obj *obj = (void*)((uint8_t*) ptr) - sizeof(*obj);
+    obj->count++;
+}
+
 /* helper fns */
+static void free_val(struct sc_ctx *ctx, sc_value val) {
+    if (val.type == SC_STRING_VAL) sc_free(ctx, val.str);
+    else if (val.type == SC_LIST_VAL) {
+        free_val(ctx, *val.list.current);
+        sc_free(ctx, val.list.current);
+        free_val(ctx, *val.list.next);
+        sc_free(ctx, val.list.next);
+    }
+}
+
+static void free_args(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    for (uint16_t i = 0; i < nargs; i++) free_val(ctx, args[i]);
+}
+
 static sc_value eval_at(struct sc_ctx *ctx, uint16_t addr) {
     uint16_t old = ctx->_ctx->eval_offset;
     sc_value res = { 0 };
@@ -397,6 +473,17 @@ static char *alloc_ident(struct sc_ctx *ctx, uint16_t addr) {
     memcpy(buffer, buf + addr, len);
     buffer[len] = 0;
     return buffer;
+}
+
+static sc_value dup_val(sc_value val) {
+    if (val.type == SC_STRING_VAL) sc_dup(val.str);
+    else if (val.type == SC_LIST_VAL) {
+        sc_dup(val.list.current);
+        *val.list.current = dup_val(*val.list.current);
+        sc_dup(val.list.next);
+        *val.list.next = dup_val(*val.list.next);
+    }
+    return val;
 }
 
 /* builtin routines */
@@ -446,7 +533,8 @@ static sc_value list(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     sc_value *iter = &res;
     for (uint16_t i = 0; i < nargs; i++) {
         iter->type = SC_LIST_VAL;
-        iter->list.current = args + i; /* there is no GC, can do this */
+        iter->list.current = sc_alloc(ctx, sizeof(res));
+        *iter->list.current = dup_val(args[i]);
         iter->list.next = sc_alloc(ctx, sizeof(res));
         iter = iter->list.next;
     }
@@ -455,8 +543,7 @@ static sc_value list(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 }
 
 static sc_value cons(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    sc_value res = { 0 };
-    if (nargs != 2) return res;
+    if (nargs != 2) return sc_nil;
 
     return list(ctx, args, nargs);
 }
@@ -477,7 +564,7 @@ static sc_value cdr(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     return *args[0].list.next;
 }
 
-static sc_value begin(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) { return args[nargs - 1]; }
+static sc_value begin(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) { return dup_val(args[nargs - 1]); }
 
 static bool val_eql(sc_value a, sc_value b) {
     if (a.type != b.type) return false;
@@ -505,30 +592,24 @@ static bool val_eql(sc_value a, sc_value b) {
 }
 
 static sc_value eq(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    sc_value res = {0};
-    res.type = SC_BOOL_VAL;
-    res.boolean = true;
-    if (nargs == 0) return res;
+    if (nargs == 0) return sc_bool(true);
     for (uint16_t i = 0; i < nargs - 1; i++)
         if (!val_eql(args[i], args[i + 1]))
             return sc_bool(false);
-    return res;
+    return sc_bool(true);
 }
 
 static sc_value define(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    sc_value res = { 0 };
-    if (nargs != 2) return res;
+    if (nargs != 2) return sc_nil;
     char *ident = get_ident(ctx, (void*) ctx->heap + args[0].lazy_addr);
     struct sc_stack_kv *kv = global_add(ctx);
     kv->ident = ident;
     kv->value = eval_at(ctx, args[1].lazy_addr);
     return sc_bool(true);
-
 }
 
-static sc_value define_scope(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    sc_value res = { 0 };
-    if (nargs != 2) return res;
+static sc_value let(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 2) return sc_nil;
     char *ident = get_ident(ctx, (void*) ctx->heap + args[0].lazy_addr);
     struct sc_stack_kv *kv = frame_add(ctx);
     kv->ident = ident;
@@ -549,8 +630,8 @@ static sc_value lambda(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 
 static sc_value cond(struct sc_ctx *ctx, sc_value *args, uint16_t nargs)
 {
-    sc_value res = { 0 }; uint16_t i = 0;
-    if (nargs < 2) return res;
+    uint16_t i = 0;
+    if (nargs < 2) return sc_nil;
     for (; i < nargs; i += 2) {
         sc_value cond = eval_at(ctx, args[i].lazy_addr);
         if (cond.type != SC_BOOL_VAL) goto skip;
@@ -561,7 +642,12 @@ skip:
     }
     if (i - nargs == 1) /* else */
         return eval_at(ctx, args[nargs - 1].lazy_addr);
-    return res;
+    return sc_nil;
+}
+
+static sc_value call(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs < 2) return sc_nil;
+    return eval_lambda(ctx, (args + 0), (args + 1), nargs - 1);
 }
 
 /* generated functions */
