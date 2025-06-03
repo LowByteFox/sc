@@ -22,21 +22,56 @@ static struct sc_priv_fns priv[] = {
     { false, "<=", lte, },
     { false, ">", gt, },
     { false, ">=", gte, },
-    { false, "len", len },
-    { false, "list", list },
-    { false, "cons", cons },
+    /* { false, "and", and },
+     * { false, "or", or },
+     * { false, "not", not },
+     */
     { false, "car", car },
     { false, "cdr", cdr },
-    { false, "begin", begin },
-    { false, "eq?", eq },
-    { false, "equal?", eq },
-    { false, "call", call },
-    { true, "define", define },
-    { true, "let", let },
-    { true, "lambda", lambda },
-    { true, "λ", lambda },
+    { false, "cons", cons },
+    { false, "list", list },
+    { false, "length", len },
+    /* { false, "append", append },
+     * { false, "map", map },
+     * { false, "filter", filter },
+     * { false, "reverse", reverse },
+     * { false, "fold", fold },
+     * { false, "member", member },
+     * { false, "take", take },
+     * { false, "drop", drop },
+     */
+    { false, "string-length", len },
+    /* { false, "string-ref", string_ref },
+     * { false, "substring", substring },
+     * { false, "string-upcase", upcase },
+     * { false, "string-downcase", downcase },
+     * { false, "string-titlecase", titlecase },
+     * { false, "string-contains?", str_contains },
+     */
     { true, "if", cond },
     { true, "cond", cond },
+    { true, "define", define },
+    { false, "begin", begin },
+    { true, "lambda", lambda },
+    { true, "λ", lambda },
+    { true, "let", let },
+    { false, "call", call },
+    /* { true, "while", while_loop },
+     * { true, "until", until_loop },
+     * { false, "display", display },
+     * { false, "newline", newline },
+     * { false, "read", read },
+     * { false, "max", max },
+     * { false, "min", min },
+     * { false, "abs", abs },
+     * { false, "sqrt", sqrt },
+     * { false, "expt", expt },
+     * { false, "random", rand },
+     * { false, "mean", mean },
+     * { false, "median", median },
+     */
+    { false, "eq?", eq },
+    { false, "equal?", eq },
     { false, NULL, NULL },
 };
 
@@ -190,16 +225,10 @@ static sc_value get_val(struct sc_ctx *ctx, uint8_t type) {
     sc_value res = { 0 };
     struct sc_ast_val *val = (void*) (ctx->heap + ctx->_ctx->eval_offset);
     ctx->_ctx->eval_offset += sizeof(*val);
-    if (type == SC_AST_NUM) {
-        res.type = SC_NUM_VAL;
-        res.number = strtol(buf + val->value, NULL, 10);
-    } else if (type == SC_AST_REAL) {
-        res.type = SC_REAL_VAL;
-        res.real = strtod(buf + val->value, NULL);
-    } else if (type == SC_AST_BOOL) {
-        res.type = SC_BOOL_VAL;
-        res.boolean = buf[val->value] == 't' ? true : false;
-    } else if (type == SC_AST_STRING) {
+    if (type == SC_AST_NUM) return sc_num(strtol(buf + val->value, NULL, 10));
+    else if (type == SC_AST_REAL) return sc_real(strtod(buf + val->value, NULL));
+    else if (type == SC_AST_BOOL) return sc_bool(buf[val->value] == 't' ? true : false);
+    else if (type == SC_AST_STRING) {
         size_t len = strcspn(buf + val->value, "\"");
         res.type = SC_STRING_VAL;
         res.str = sc_alloc(ctx, len + 1);
@@ -519,12 +548,15 @@ static sc_value plus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 }
 
 static sc_value len(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    sc_value res = { 0 };
-    if (nargs != 1) return res;
-    if (args[0].type != SC_STRING_VAL) return res;
-    res.type = SC_NUM_VAL;
-    res.number = strlen(args[0].str);
-    return res;
+    if (nargs != 1) return sc_nil;
+    else if (args[0].type == SC_STRING_VAL) return sc_num(strlen(args[0].str));
+    else if (args[0].type == SC_LIST_VAL) {
+        int64_t len = 0;
+        sc_value *iter = args + 0;
+        while (iter != NULL && iter->type != SC_NOTHING_VAL) { len++; iter = iter->list.next; }
+        return sc_num(len);
+    }
+    return sc_nil;
 }
 
 static sc_value list(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
@@ -553,7 +585,7 @@ static sc_value car(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (nargs != 1) return res;
     if (args[0].type != SC_LIST_VAL) return res;
 
-    return *args[0].list.current;
+    return dup_val(*args[0].list.current);
 }
 
 static sc_value cdr(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
@@ -561,7 +593,7 @@ static sc_value cdr(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (nargs != 1) return res;
     if (args[0].type != SC_LIST_VAL) return res;
 
-    return *args[0].list.next;
+    return dup_val(*args[0].list.next);
 }
 
 static sc_value begin(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) { return dup_val(args[nargs - 1]); }

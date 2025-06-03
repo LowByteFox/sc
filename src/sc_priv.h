@@ -9,8 +9,10 @@
 #error "Heap size cannot be more than 65535 (UINT16_MAX) bytes"
 #endif
 
-#define sc_bool(val) ((sc_value) { .type = SC_BOOL_VAL, .boolean = val })
 #define sc_nil ((sc_value) { 0 })
+#define sc_num(val) ((sc_value) { .type = SC_NUM_VAL, .number = val })
+#define sc_real(val) ((sc_value) { .type = SC_REAL_VAL, .real = val })
+#define sc_bool(val) ((sc_value) { .type = SC_BOOL_VAL, .boolean = val })
 
 enum sc_node_types {
     SC_AST_EXPR = 1,

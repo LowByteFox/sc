@@ -9,7 +9,7 @@ void print_value(sc_value *val);
 int main()
 {
     struct sc_ctx ctx = { 0 };
-    const char *prog = "(begin (list 1 2 3 4))";
+    const char *prog = "(len \"uwu owo\")";
 
     sc_value res = sc_eval(&ctx, prog, strlen(prog));
 
