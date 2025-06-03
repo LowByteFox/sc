@@ -35,6 +35,7 @@ enum sc_val_type {
     SC_ERROR_VAL,
 
     SC_LAZY_EXPR_VAL = INT8_MAX,
+    SC_USERDATA_VAL,
 };
 
 struct sc_ast_ctx;
@@ -80,6 +81,10 @@ struct sc_val {
             uint16_t args;
             uint16_t body;
         } lambda;
+        struct {
+            void *data;
+            void (*on_gc)(struct sc_ctx *ctx, void *data);
+        } userdata;
     };
 };
 
@@ -88,6 +93,8 @@ extern const char *sc_err;
 void *sc_alloc(struct sc_ctx *ctx, uint16_t size);
 void sc_free(struct sc_ctx *ctx, void *ptr);
 void sc_dup(void *ptr);
+sc_value sc_string(struct sc_ctx *ctx, const char *cstr);
+sc_value sc_userdata(struct sc_ctx *ctx, uint16_t size, void (*on_gc)(struct sc_ctx *ctx, void *data));
 sc_value sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen);
 
 #endif

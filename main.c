@@ -8,8 +8,13 @@
 void print_value(sc_value *val);
 
 static sc_value display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value f_open(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value f_read(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+
 struct sc_fns funs[] = {
     { false, "my_display", display },
+    { false, "fopen", f_open },
+    { false, "fread", f_read },
     { false, NULL, NULL }
 };
 
@@ -18,7 +23,7 @@ int main()
     srand(time(NULL));
     struct sc_ctx ctx = { 0 };
     ctx.user_fns = funs;
-    const char *prog = "(begin (let x 1) (my_display x) (let x 2) (my_display x))";
+    const char *prog = "(fread (fopen \"/etc/passwd\"))";
 
     sc_value res = sc_eval(&ctx, prog, strlen(prog));
 
@@ -66,9 +71,36 @@ void print_value(sc_value *val)
     }
 }
 
-static sc_value display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+static sc_value display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs)
+{
     if (nargs != 1) return sc_error("display: only 1 argument!");
     print_value(args + 0);
     putchar('\n');
     return sc_nil;
+}
+
+static void f_close(struct sc_ctx *ctx, void *data) {
+    FILE *f = *(FILE**) data;
+    fclose(f);
+    printf("Closing file!\n");
+}
+
+static sc_value f_open(struct sc_ctx *ctx, sc_value *args, uint16_t nargs)
+{
+    if (nargs != 1) return sc_error("fopen: only 1 argument!");
+    FILE *f = fopen(args[0].str, "r");
+    sc_value data = sc_userdata(ctx, sizeof(FILE*), f_close);
+    *(FILE**) data.userdata.data = f;
+    return data;
+}
+
+static sc_value f_read(struct sc_ctx *ctx, sc_value *args, uint16_t nargs)
+{
+    if (nargs != 1) return sc_error("fread: only 1 argument!");
+    char buffer[256] = { 0 };
+    FILE *f = *(FILE**) args[0].userdata.data;
+    fgets(buffer, 256, f);
+    *strchr(buffer, '\n') = 0;
+
+    return sc_string(ctx, buffer);
 }

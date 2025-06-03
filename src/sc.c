@@ -55,6 +55,7 @@ static struct sc_fns priv[] = {
     { true, "lambda", lambda },
     { true, "λ", lambda },
     { true, "let", let },
+    { true, "set!", let },
     { false, "call", call },
     { false, "random", rnd },
     { false, "abs", sc_abs },
@@ -474,6 +475,25 @@ void sc_free(struct sc_ctx *ctx, void *ptr) {
     }
 }
 
+sc_value sc_string(struct sc_ctx *ctx, const char *cstr) {
+    sc_value s = { 0 };
+    s.type = SC_STRING_VAL;
+    s.str = sc_alloc(ctx, strlen(cstr));
+    memcpy(s.str, cstr, strlen(cstr));
+
+    return s;
+}
+
+sc_value sc_userdata(struct sc_ctx *ctx, uint16_t size,
+    void (*on_gc)(struct sc_ctx *ctx, void *data)) {
+    sc_value v = { 0 };
+    v.type = SC_USERDATA_VAL;
+    v.userdata.on_gc = on_gc;
+    v.userdata.data = sc_alloc(ctx, size);
+
+    return v;
+}
+
 void sc_dup(void *ptr) {
     struct sc_gc_obj *obj = (void*)((uint8_t*) ptr) - sizeof(*obj);
     obj->count++;
@@ -482,6 +502,12 @@ void sc_dup(void *ptr) {
 /* helper fns */
 static void free_val(struct sc_ctx *ctx, sc_value val) {
     if (val.type == SC_STRING_VAL) sc_free(ctx, val.str);
+    if (val.type == SC_USERDATA_VAL) {
+        struct sc_gc_obj *obj = (void*)((uint8_t*) val.userdata.data) - sizeof(*obj);
+        if (obj->count == 1 && val.userdata.on_gc != NULL)
+            val.userdata.on_gc(ctx, val.userdata.data);
+        sc_free(ctx, val.userdata.data);
+    }
     else if (val.type == SC_LIST_VAL) {
         free_val(ctx, *val.list.current);
         sc_free(ctx, val.list.current);
@@ -521,6 +547,7 @@ static char *alloc_ident(struct sc_ctx *ctx, uint16_t addr) {
 
 static sc_value dup_val(sc_value val) {
     if (val.type == SC_STRING_VAL) sc_dup(val.str);
+    else if (val.type == SC_USERDATA_VAL) sc_dup(val.userdata.data);
     else if (val.type == SC_LIST_VAL) {
         sc_dup(val.list.current);
         *val.list.current = dup_val(*val.list.current);
