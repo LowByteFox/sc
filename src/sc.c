@@ -32,8 +32,8 @@ static struct sc_fns priv[] = {
     { false, "cons", cons },
     { false, "list", list },
     { false, "length", len },
-    /* { false, "append", append },
-     * { false, "map", map },
+    { false, "append", append },
+    /* { false, "map", map },
      * { false, "filter", filter },
      * { false, "reverse", reverse },
      * { false, "fold", fold },
@@ -42,13 +42,10 @@ static struct sc_fns priv[] = {
      * { false, "drop", drop },
      */
     { false, "string-length", len },
-    /* { false, "string-ref", string_ref },
-     * { false, "substring", substring },
-     * { false, "string-upcase", upcase },
-     * { false, "string-downcase", downcase },
-     * { false, "string-titlecase", titlecase },
-     * { false, "string-contains?", str_contains },
-     */
+    { false, "string-upcase", upcase },
+    { false, "string-downcase", downcase },
+    { false, "string-append", str_append },
+    { false, "string-contains?", str_contains },
     { true, "if", cond },
     { true, "cond", cond },
     { true, "define", define },
@@ -67,7 +64,6 @@ static struct sc_fns priv[] = {
     { false, "display", display },
     { false, "newline", newline },
     /* { false, "read", read },
-     * { false, "median", median },
      * { false, "max", sc_max },
      * { false, "min", sc_min },
      */
@@ -599,6 +595,14 @@ static sc_value plus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     return sc_bool(true);\
 }
 
+#define gen_casestr_fn(name, name_str, fn) static sc_value name(struct sc_ctx *ctx,\
+    sc_value *args, uint16_t nargs) {\
+    if (nargs != 1) return sc_error(name_str": incorrect amount of arguments!");\
+    sc_value copy = sc_string(ctx, args[0].str);\
+    for (char *i = copy.str; *i; i++) *i = fn(*i);\
+    return copy;\
+}
+
 static sc_value len(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (nargs != 1) return sc_error("len: incorrect amount of arguments!");
     else if (args[0].type == SC_STRING_VAL) return sc_num(strlen(args[0].str));
@@ -624,6 +628,15 @@ static sc_value list(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     }
 
     return res;
+}
+
+static sc_value append(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 2) return sc_error("append: incorrect amount of arguments!");
+    if (args[0].type != SC_LIST_VAL || args[1].type != SC_LIST_VAL) return sc_error("append: expected lists!");
+    sc_value *iter = args + 0;
+    while (iter->list.next->list.current != NULL) iter = iter->list.next;
+    *iter->list.next = args[1];
+    return dup_val(args[0]);
 }
 
 static sc_value cons(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
@@ -812,9 +825,7 @@ static void display_val(sc_value *v) {
             iter = iter->list.next;
         }
         putchar(')');
-    } else {
-        printf("??? %d!", v->type);
-    }
+    } else printf("??? %d!", v->type);
 }
 
 static sc_value display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
@@ -823,6 +834,27 @@ static sc_value display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 }
 
 static sc_value newline(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) { putchar('\n'); return sc_nil; }
+
+static sc_value str_append(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs < 1) return sc_error("string-append: incorrect amount of arguments!");
+    uint16_t i, iter_size, final_len = 0;
+    for (i = 0; i < nargs; i++) {
+        if (args[i].type != SC_STRING_VAL) return sc_error("string-append: expected a string!");
+        final_len += strlen(args[i].str);
+    }
+    char *str = sc_alloc(ctx, final_len + 1); iter_size = 0;
+    for (i = 0; i < nargs; i++) {
+        uint16_t len = strlen(args[i].str);
+        memcpy(str + iter_size, args[i].str, len); iter_size += len;
+    } str[iter_size] = 0;
+    return (sc_value) {.type = SC_STRING_VAL, .str = str};
+}
+
+static sc_value str_contains(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 2) return sc_error("string-contains?: incorrect amount of arguments!");
+    if (args[0].type != SC_STRING_VAL || args[1].type != SC_STRING_VAL) return sc_error("string-contains?: expected strings!");
+    return strstr(args[0].str, args[1].str) == NULL ? sc_bool(false) : sc_bool(true);
+}
 
 /* generated functions */
 gen_math_fns(minus, -=);
@@ -835,3 +867,5 @@ gen_comp_fns(gt, >);
 gen_comp_fns(gte, >=);
 gen_log_fns(and, &&);
 gen_log_fns(or, ||);
+gen_casestr_fn(upcase, "string-upcase", toupper)
+gen_casestr_fn(downcase, "string-downcase", tolower);

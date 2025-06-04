@@ -23,7 +23,7 @@ int main()
     srand(time(NULL));
     struct sc_ctx ctx = { 0 };
     ctx.user_fns = funs;
-    const char *prog = "(begin (display nil) (newline) (display 77) (newline) (display 3.14) (newline) (display #t) (newline) (display \"Hello, World!\") (newline) (display (lambda (a b) (+ a b))) (newline) (display (fopen \"/etc/services\")) (newline) (display (list 1 2 3)) (newline))";
+    const char *prog = "";
 
     sc_value res = sc_eval(&ctx, prog, strlen(prog));
 

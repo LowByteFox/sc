@@ -108,6 +108,7 @@ static sc_value gt(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value gte(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value len(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value list(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value append(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value cons(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value car(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value cdr(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
@@ -127,5 +128,8 @@ static sc_value mean(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value error(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value newline(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
-
+static sc_value upcase(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value downcase(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value str_append(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value str_contains(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 #endif
