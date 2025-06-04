@@ -116,6 +116,7 @@ static sc_value define(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value let(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value lambda(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value cond(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value sc_while(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value call(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value eq(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value rnd(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
@@ -124,5 +125,7 @@ static sc_value sc_sqrt(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value sc_expt(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value mean(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value error(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value newline(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 
 #endif

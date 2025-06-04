@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <stdbool.h>
 #include <math.h>
+#include <inttypes.h>
 
 #include "sc.h"
 #include "sc_priv.h"
@@ -62,11 +63,10 @@ static struct sc_fns priv[] = {
     { false, "sqrt", sc_sqrt },
     { false, "expt", sc_expt },
     { false, "mean", mean },
-    /* { true, "while", while_loop },
-     * { true, "until", until_loop },
-     * { false, "display", display },
-     * { false, "newline", newline },
-     * { false, "read", read },
+    { true, "while", sc_while },
+    { false, "display", display },
+    { false, "newline", newline },
+    /* { false, "read", read },
      * { false, "median", median },
      * { false, "max", sc_max },
      * { false, "min", sc_min },
@@ -715,8 +715,7 @@ static sc_value lambda(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     return res;
 }
 
-static sc_value cond(struct sc_ctx *ctx, sc_value *args, uint16_t nargs)
-{
+static sc_value cond(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     uint16_t i = 0;
     if (nargs < 2) return sc_nil;
     for (; i < nargs; i += 2) {
@@ -729,6 +728,16 @@ skip:
     }
     if (i - nargs == 1) /* else */
         return eval_at(ctx, args[nargs - 1].lazy_addr);
+    return sc_nil;
+}
+
+static sc_value sc_while(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 2) return sc_error("while: incorrect amount of arguments!");
+    sc_value expr_res = eval_at(ctx, args[0].lazy_addr);
+    while (expr_res.type == SC_BOOL_VAL && expr_res.boolean == true) {
+        eval_at(ctx, args[1].lazy_addr);
+        expr_res = eval_at(ctx, args[0].lazy_addr);
+    }
     return sc_nil;
 }
 
@@ -784,6 +793,36 @@ static sc_value error(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (nargs != 1) return sc_error("error: incorrect amount of arguments!");
     return sc_error(dup_val(args[0]).str);
 }
+
+static void display_val(sc_value *v) {
+    if (v == NULL || v->type == SC_NOTHING_VAL) printf("nil");
+    else if (v->type == SC_NUM_VAL) printf("%"PRIi64, v->number);
+    else if (v->type == SC_REAL_VAL) printf("%.15f", v->real);
+    else if (v->type == SC_BOOL_VAL) printf("%s", v->boolean ? "#t" : "#f");
+    else if (v->type == SC_STRING_VAL) printf("%s", v->str);
+    else if (v->type == SC_LAMBDA_VAL) printf("λ(%d) => ...", v->lambda.arg_count);
+    else if (v->type == SC_ERROR_VAL) printf("err(%s)", v->err);
+    else if (v->type == SC_LAZY_EXPR_VAL) printf("addr(%d)", v->lazy_addr);
+    else if (v->type == SC_USERDATA_VAL) printf("userdata(%p)", v->userdata.data);
+    else if (v->type == SC_LIST_VAL) {
+        sc_value *iter = v; putchar('(');
+        while (iter->list.current != NULL) {
+            display_val(iter->list.current);
+            if (iter->list.next->type != SC_NOTHING_VAL) putchar(' ');
+            iter = iter->list.next;
+        }
+        putchar(')');
+    } else {
+        printf("??? %d!", v->type);
+    }
+}
+
+static sc_value display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 1) return sc_error("display: incorrect amount of arguments!");
+    display_val(args + 0); return sc_nil;
+}
+
+static sc_value newline(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) { putchar('\n'); return sc_nil; }
 
 /* generated functions */
 gen_math_fns(minus, -=);

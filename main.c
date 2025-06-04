@@ -23,7 +23,7 @@ int main()
     srand(time(NULL));
     struct sc_ctx ctx = { 0 };
     ctx.user_fns = funs;
-    const char *prog = "(begin (let x \"hello\") (my_display x) (my_display x))";
+    const char *prog = "(begin (display nil) (newline) (display 77) (newline) (display 3.14) (newline) (display #t) (newline) (display \"Hello, World!\") (newline) (display (lambda (a b) (+ a b))) (newline) (display (fopen \"/etc/services\")) (newline) (display (list 1 2 3)) (newline))";
 
     sc_value res = sc_eval(&ctx, prog, strlen(prog));
 
@@ -82,7 +82,6 @@ static sc_value display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs)
 static void f_close(struct sc_ctx *ctx, void *data) {
     FILE *f = *(FILE**) data;
     fclose(f);
-    printf("Closing file!\n");
 }
 
 static sc_value f_open(struct sc_ctx *ctx, sc_value *args, uint16_t nargs)
