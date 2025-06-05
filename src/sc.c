@@ -170,12 +170,11 @@ static sc_value eval_ast(struct sc_ctx *ctx) {
     struct sc_ast_expr *expr = (void*) (ctx->heap + ctx->_ctx->eval_offset);
     ctx->_ctx->eval_offset += sizeof(*expr);
     int16_t fn_index = -1;
-    size_t len = strcspn(buf + expr->ident, " ()");;
     bool user_fn = false;
 
     char *it = alloc_ident(ctx, expr->ident);
     for (uint8_t i = 0; priv[i].name != NULL; i++) {
-        if (strncmp(it, priv[i].name, len) == 0) {
+        if (strcmp(it, priv[i].name) == 0) {
             fn_index = i; break;
         }
     }
@@ -183,14 +182,13 @@ static sc_value eval_ast(struct sc_ctx *ctx) {
 
     if (fn_index == -1) {
         for (uint8_t i = 0; ctx->user_fns[i].name != NULL; i++) {
-            if (strncmp(it, ctx->user_fns[i].name, len) == 0) {
+            if (strcmp(it, ctx->user_fns[i].name) == 0) {
                 fn_index = i; user_fn = true; break;
             }
         }
 
         if (fn_index == -1) {
-            char buffer[len + 1]; memcpy(buffer, it, len); buffer[len] = 0;
-            maybe = stack_find(ctx->_stack, buffer);
+            maybe = stack_find(ctx->_stack, it);
             if (maybe == NULL)
                 return sc_error("sc: unable to find function!");
         }

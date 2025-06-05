@@ -23,7 +23,7 @@ int main()
     srand(time(NULL));
     struct sc_ctx ctx = { 0 };
     ctx.user_fns = funs;
-    const char *prog = "(% 4.58 3)";
+    const char *prog = "(string 7)";
 
     sc_value res = sc_eval(&ctx, prog, strlen(prog));
 
