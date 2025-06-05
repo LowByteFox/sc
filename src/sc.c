@@ -80,6 +80,10 @@ sc_value sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen) {
         char c = *buffer;
         if (isspace(c)) continue;
 
+        if (c == ';') {
+            while (*buffer != '\n') { buffer++; i++; } continue;
+        }
+
         if (isspecial(c)) {
             append_tok(ctx, &toks_len, &toks_size, c);
             append_loc(ctx, &locs_len, &locs_size, i);
