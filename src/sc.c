@@ -33,14 +33,11 @@ static struct sc_fns priv[] = {
     { false, "list", list },
     { false, "length", len },
     { false, "append", append },
-    /* { false, "map", map },
-     * { false, "filter", filter },
-     * { false, "reverse", reverse },
-     * { false, "fold", fold },
-     * { false, "member", member },
-     * { false, "take", take },
-     * { false, "drop", drop },
-     */
+    { false, "map", map },
+    { false, "filter", filter },
+    { false, "find", find },
+    { false, "at", at },
+    { false, "string", tostring },
     { false, "string-length", len },
     { false, "string-upcase", upcase },
     { false, "string-downcase", downcase },
@@ -70,6 +67,8 @@ static struct sc_fns priv[] = {
     { false, "eq?", eq },
     { false, "equal?", eq },
     { false, "error", error },
+    { false, "number", tonum },
+    { false, "real", toreal },
     { false, NULL, NULL },
 };
 
@@ -172,7 +171,7 @@ static bool isspecial(char c) { return c == '(' || c == ')'; }
 static sc_value eval_ast(struct sc_ctx *ctx) {
     struct sc_ast_expr *expr = (void*) (ctx->heap + ctx->_ctx->eval_offset);
     ctx->_ctx->eval_offset += sizeof(*expr);
-    uint8_t fn_index = sizeof(priv) / sizeof(priv[0]) - 1;
+    int16_t fn_index = -1;
     size_t len = strcspn(buf + expr->ident, " ()");;
     bool user_fn = false;
 
@@ -184,17 +183,18 @@ static sc_value eval_ast(struct sc_ctx *ctx) {
     }
     struct sc_stack_kv *maybe = NULL;
 
-    if (priv[fn_index].name == NULL) {
+    if (fn_index == -1) {
         for (uint8_t i = 0; ctx->user_fns[i].name != NULL; i++) {
             if (strncmp(it, ctx->user_fns[i].name, len) == 0) {
                 fn_index = i; user_fn = true; break;
             }
         }
-        if (ctx->user_fns[fn_index].name == NULL) {
+
+        if (fn_index == -1) {
             char buffer[len + 1]; memcpy(buffer, it, len); buffer[len] = 0;
             maybe = stack_find(ctx->_stack, buffer);
             if (maybe == NULL)
-                return (sc_value) {0};
+                return sc_error("sc: unable to find function!");
         }
     }
     sc_free(ctx, it);
@@ -258,7 +258,8 @@ static sc_value get_val(struct sc_ctx *ctx, uint8_t type) {
 }
 
 static sc_value eval_lambda(struct sc_ctx *ctx, sc_value *lambda, sc_value *args, uint16_t nargs) {
-    if (lambda->lambda.arg_count != nargs) return (sc_value) {0};
+    if (lambda->type != SC_LAMBDA_VAL) return sc_error("sc: expected lambda, got something else!");
+    if (lambda->lambda.arg_count != nargs) return sc_error("sc: incorrect amount of arguments when calling lambda");
     push_frame(ctx);
     struct sc_ast_expr *l_args = (void*) ctx->heap + lambda->lambda.args;
 
@@ -854,6 +855,111 @@ static sc_value str_contains(struct sc_ctx *ctx, sc_value *args, uint16_t nargs)
     if (nargs != 2) return sc_error("string-contains?: incorrect amount of arguments!");
     if (args[0].type != SC_STRING_VAL || args[1].type != SC_STRING_VAL) return sc_error("string-contains?: expected strings!");
     return strstr(args[0].str, args[1].str) == NULL ? sc_bool(false) : sc_bool(true);
+}
+
+static sc_value at(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 2) return sc_error("at: incorrect amount of arguments!");
+    if ((args[0].type != SC_STRING_VAL && args[0].type != SC_LIST_VAL) || args[1].type != SC_NUM_VAL)
+        return sc_error("at: exprected string or list and a number!");
+    if (args[0].type == SC_STRING_VAL) {
+        uint16_t len = strlen(args[0].str);
+        if (args[1].number >= len) return sc_error("at: index out of range!");
+        return sc_string(ctx, (char[]){ args[0].str[args[1].number], 0 });
+    } else {
+        sc_value *iter = args + 0;
+        for (uint16_t i = 0; i < args[1].number && iter->type != SC_NOTHING_VAL; i++) iter = iter->list.next;
+        if (iter->type == SC_NOTHING_VAL) return sc_error("at: index out of range!");
+        return dup_val(*iter->list.current);
+    }
+}
+
+static sc_value tonum(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 1) return sc_error("tonum: incorrect amount of arguments!");
+    if (args[0].type != SC_STRING_VAL && args[0].type != SC_REAL_VAL) return sc_error("tonum: expected a string or a real!");
+    if (args[0].type == SC_STRING_VAL) return sc_num(atol(args[0].str));
+    else return sc_num((uint64_t) args[0].real);
+}
+
+static sc_value toreal(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 1) return sc_error("toreal: incorrect amount of arguments!");
+    if (args[0].type != SC_STRING_VAL && args[0].type != SC_NUM_VAL) return sc_error("toreal: expected a string or a number!");
+    if (args[0].type == SC_STRING_VAL) return sc_real(strtod(args[0].str, NULL));
+    else return sc_real(args[0].number);
+}
+
+static sc_value tostring(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 1) return sc_error("tostring: incorrect amount of arguments!");
+    if (args[0].type != SC_NUM_VAL && args[0].type != SC_REAL_VAL &&
+        args[0].type != SC_BOOL_VAL) return sc_error("toreal: expected a number, a real or a bool!");
+    sc_value res = { 0 };
+    res.type = SC_STRING_VAL;
+    if (args[0].type == SC_NUM_VAL) {
+        uint16_t len = snprintf(NULL, 0, "%"PRIi64, args[0].number);
+        res.str = sc_alloc(ctx, len + 1);
+        snprintf(res.str, len + 1, "%"PRIi64, args[0].number);
+    } else if (args[0].type == SC_REAL_VAL) {
+        uint16_t len = snprintf(NULL, 0, "%f", args[0].real);
+        res.str = sc_alloc(ctx, len + 1);
+        snprintf(res.str, len + 1, "%f", args[0].real);
+    } else return sc_string(ctx, args[0].boolean ? "#t" : "#f");
+    return res;
+}
+
+static sc_value map(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 2) return sc_error("map: incorrect amount of arguments!");
+    if (args[0].type != SC_LAMBDA_VAL || args[1].type != SC_LIST_VAL)
+        return sc_error("map: expected lambda and a list!");
+    if (args[0].lambda.arg_count != 1) return sc_error("map: only 1 argument required in lambda");
+    sc_value res = { 0 };
+    sc_value *iter = &res;
+    sc_value *in_iter = args + 1;
+    while (in_iter != NULL && in_iter->type != SC_NOTHING_VAL) {
+        iter->type = SC_LIST_VAL;
+        iter->list.current = sc_alloc(ctx, sizeof(res));
+        *iter->list.current = dup_val(eval_lambda(ctx, args + 0, in_iter->list.current, 1));
+        iter->list.next = sc_alloc(ctx, sizeof(res));
+        iter = iter->list.next;
+        in_iter = in_iter->list.next;
+    }
+    return res;
+}
+
+static sc_value filter(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 2) return sc_error("filter: incorrect amount of arguments!");
+    if (args[0].type != SC_LAMBDA_VAL || args[1].type != SC_LIST_VAL)
+        return sc_error("filter: expected lambda and a list!");
+    if (args[0].lambda.arg_count != 1) return sc_error("filter: only 1 argument required in lambda!");
+    sc_value res = { 0 };
+    sc_value *iter = &res;
+    sc_value *in_iter = args + 1;
+    while (in_iter != NULL && in_iter->type != SC_NOTHING_VAL) {
+        iter->type = SC_LIST_VAL;
+        sc_value r = eval_lambda(ctx, args + 0, in_iter->list.current, 1);
+        if (r.type != SC_BOOL_VAL) return sc_error("filter: expected lambda to return bool!");
+        if (r.boolean == false) goto skip;
+        iter->list.current = sc_alloc(ctx, sizeof(res));
+        *iter->list.current = dup_val(*in_iter->list.current);
+        iter->list.next = sc_alloc(ctx, sizeof(res));
+        iter = iter->list.next;
+skip:
+        in_iter = in_iter->list.next;
+    }
+    return res;
+}
+
+static sc_value find(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    if (nargs != 2) return sc_error("find: incorrect amount of arguments!");
+    if (args[0].type != SC_LAMBDA_VAL || args[1].type != SC_LIST_VAL)
+        return sc_error("find: expected lambda and a list!");
+    if (args[0].lambda.arg_count != 1) return sc_error("find: only 1 argument required in lambda!");
+    sc_value *iter = args + 1;
+    while (iter != NULL && iter->type != SC_NOTHING_VAL) {
+        sc_value r = eval_lambda(ctx, args + 0, iter->list.current, 1);
+        if (r.type != SC_BOOL_VAL) return sc_error("find: expected lambda to return bool!");
+        if (r.boolean == true) return dup_val(*iter->list.current);
+        iter = iter->list.next;
+    }
+    return sc_bool(false);
 }
 
 /* generated functions */

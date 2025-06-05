@@ -132,4 +132,12 @@ static sc_value upcase(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value downcase(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value str_append(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value str_contains(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value at(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value tonum(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value toreal(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value tostring(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value map(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value filter(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value find(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+
 #endif
