@@ -9,6 +9,8 @@
 #error "Heap size cannot be more than 65535 (UINT16_MAX) bytes"
 #endif
 
+#define stack_find(stack, ident) (stack_node_find(stack->head, ident))
+
 enum sc_node_types {
     SC_AST_EXPR = 1,
     SC_AST_IDENT,
@@ -72,7 +74,7 @@ static bool isspecial(char c);
 static sc_value eval_ast(struct sc_ctx *ctx);
 static sc_value get_val(struct sc_ctx *ctx, uint8_t type);
 static sc_value eval_lambda(struct sc_ctx *ctx, sc_value *lambda, sc_value *args, uint16_t nargs);
-static void parse_expr(struct sc_ctx *ctx);
+static sc_value parse_expr(struct sc_ctx *ctx);
 static void parse_val(struct sc_ctx *ctx);
 static void append_tok(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_tok tk);
 static void append_loc(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_loc loc);
@@ -80,7 +82,6 @@ static void append_loc(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_loc l
 static void push_frame(struct sc_ctx *ctx);
 static void pop_frame(struct sc_ctx *ctx, struct sc_stack *stack);
 static struct sc_stack_kv *stack_node_find(struct sc_stack_node *node, const char *ident);
-static struct sc_stack_kv *stack_find(struct sc_stack *stack, const char *ident);
 static struct sc_stack_kv *global_add(struct sc_ctx *ctx);
 static struct sc_stack_kv *frame_add(struct sc_ctx *ctx);
 
@@ -90,7 +91,6 @@ static sc_value eval_at(struct sc_ctx *ctx, uint16_t addr);
 static bool has_real(sc_value *args, uint16_t nargs);
 static char *get_ident(struct sc_ctx *ctx, struct sc_ast_val *val);
 static char *alloc_ident(struct sc_ctx *ctx, uint16_t addr);
-static sc_value dup_val(sc_value val);
 
 /* builtin routines */
 static sc_value plus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);

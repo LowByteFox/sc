@@ -11,9 +11,7 @@
 #include "sc_priv.h"
 #include "config.h"
 
-const char *sc_err = NULL;
 static const char *buf = NULL;
-
 static struct sc_fns priv[] = {
     { false, "+", plus },
     { false, "-", minus },
@@ -79,12 +77,10 @@ sc_value sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen) {
 
     uint16_t toks_len, toks_size, locs_len, locs_size;
     toks_len = toks_size = locs_len = locs_size = 0;
-    sc_value nul = { 0 };
 
     for (uint16_t i = 0; i < buflen; i++, buffer++) {
         char c = *buffer;
-        if (isspace(c))
-            continue;
+        if (isspace(c)) continue;
 
         if (isspecial(c)) {
             append_tok(ctx, &toks_len, &toks_size, c);
@@ -113,10 +109,7 @@ flt:
                     i++; buffer++;
                     append_tok(ctx, &toks_len, &toks_size, SC_BOOL_TOK);
                     append_loc(ctx, &locs_len, &locs_size, i);
-                } else {
-                    sc_err = "Exprected #t or #f!";
-                    return nul;
-                }
+                } else return sc_error("Exprected #t or #f!");
             } else if (c == '"') { /* possibly string */
                 i++; buffer++;
                 append_tok(ctx, &toks_len, &toks_size, SC_STRING_TOK);
@@ -146,13 +139,11 @@ flt:
     ast_ctx.tok_limit = toks_len - 1;
     ctx->_ctx = &ast_ctx;
 
-    if (ctx->tokens[0] != '(') {
-        sc_err = "Expected '('!";
-        return nul;
-    }
+    if (ctx->tokens[0] != '(') return sc_error("Expected '('!");
 
     ctx->_ctx->gc.memory_limit = HEAP_SIZE;
-    parse_expr(ctx);
+    sc_value parse_res = parse_expr(ctx);
+    if (parse_res.type == SC_ERROR_VAL) return parse_res;
     ctx->_stack = &stack;
     ctx->_ctx->gc.memory_begin = ctx->_ctx->gc.arena_index;
     push_frame(ctx);
@@ -189,8 +180,7 @@ static sc_value eval_ast(struct sc_ctx *ctx) {
 
         if (fn_index == -1) {
             maybe = stack_find(ctx->_stack, it);
-            if (maybe == NULL)
-                return sc_error("sc: unable to find function!");
+            if (maybe == NULL) return sc_error("sc: unable to find function!");
         }
     }
     sc_free(ctx, it);
@@ -247,7 +237,7 @@ static sc_value get_val(struct sc_ctx *ctx, uint8_t type) {
         char buffer[len + 1]; memcpy(buffer, buf + val->value, len); buffer[len] = 0;
         struct sc_stack_kv *maybe = stack_find(ctx->_stack, buffer);
         if (maybe != NULL)
-            res = dup_val(maybe->value);
+            res = sc_dup_value(maybe->value);
     }
 
     return res;
@@ -280,28 +270,25 @@ static sc_value eval_lambda(struct sc_ctx *ctx, sc_value *lambda, sc_value *args
     return res;
 }
 
-static void parse_expr(struct sc_ctx *ctx) {
+static sc_value parse_expr(struct sc_ctx *ctx) {
     uint16_t start = ctx->_ctx->gc.arena_index;
     struct sc_ast_expr *expr = sc_alloc(ctx, sizeof(*expr));
     expr->type = SC_AST_EXPR;
     ctx->_ctx->tok_index++; /* skip ( */
-    if (ctx->tokens[ctx->_ctx->tok_index] != SC_IDENT_TOK) {
-        sc_err = "Expected identifier!";
-        return;
-    }
+    if (ctx->tokens[ctx->_ctx->tok_index] != SC_IDENT_TOK) return sc_error("Expected identifier!");
 
     expr->ident = ctx->locs[ctx->_ctx->tok_index++];
     sc_tok current = ctx->tokens[ctx->_ctx->tok_index];
     uint16_t arg_count = 0;
 
     while (current != ')') {
-        if (ctx->_ctx->tok_index >= ctx->_ctx->tok_limit) {
-            sc_err = "Expected )";
-            return;
-        }
+        if (ctx->_ctx->tok_index >= ctx->_ctx->tok_limit) return sc_error("Expected )");
 
         arg_count++;
-        if (current == SC_LPAREN_TOK) parse_expr(ctx);
+        if (current == SC_LPAREN_TOK) {
+            sc_value parse_res = parse_expr(ctx);
+            if (parse_res.type == SC_ERROR_VAL) return parse_res;
+        }
         else parse_val(ctx);
 
         current = ctx->tokens[ctx->_ctx->tok_index];
@@ -309,8 +296,8 @@ static void parse_expr(struct sc_ctx *ctx) {
     expr->arg_count = arg_count;
     expr->jump_by = ctx->_ctx->gc.arena_index - start;
     ctx->_ctx->tok_index++; /* skip ) */
-
-    return;
+    
+    return sc_nil;
 }
 
 static void parse_val(struct sc_ctx *ctx) {
@@ -378,8 +365,7 @@ static struct sc_stack_kv *stack_node_find(struct sc_stack_node *node, const cha
     struct sc_stack_kv *res = NULL;
     if (node->next_frame) {
         res = stack_node_find(node->next_frame, ident);
-        if (res != NULL)
-            return res;
+        if (res != NULL) return res;
     }
 
     struct sc_stack_kv *iter = node->first_value;
@@ -388,10 +374,6 @@ static struct sc_stack_kv *stack_node_find(struct sc_stack_node *node, const cha
         iter = iter->next;
     }
     return res;
-}
-
-static struct sc_stack_kv *stack_find(struct sc_stack *stack, const char *ident) {
-    return stack_node_find(stack->head, ident);
 }
 
 static struct sc_stack_kv *global_add(struct sc_ctx *ctx) {
@@ -493,24 +475,23 @@ void sc_dup(void *ptr) {
 }
 
 /* helper fns */
-static void free_val(struct sc_ctx *ctx, sc_value val) {
+void sc_free_value(struct sc_ctx *ctx, sc_value val) {
     if (val.type == SC_STRING_VAL) sc_free(ctx, val.str);
     if (val.type == SC_USERDATA_VAL) {
         struct sc_gc_obj *obj = (void*)((uint8_t*) val.userdata.data) - sizeof(*obj);
         if (obj->count == 1 && val.userdata.on_gc != NULL)
             val.userdata.on_gc(ctx, val.userdata.data);
         sc_free(ctx, val.userdata.data);
-    }
-    else if (val.type == SC_LIST_VAL) {
-        free_val(ctx, *val.list.current);
+    } else if (val.type == SC_LIST_VAL) {
+        sc_free_value(ctx, *val.list.current);
         sc_free(ctx, val.list.current);
-        free_val(ctx, *val.list.next);
+        sc_free_value(ctx, *val.list.next);
         sc_free(ctx, val.list.next);
     }
 }
 
 static void free_args(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    for (uint16_t i = 0; i < nargs; i++) free_val(ctx, args[i]);
+    for (uint16_t i = 0; i < nargs; i++) sc_free_value(ctx, args[i]);
 }
 
 static sc_value eval_at(struct sc_ctx *ctx, uint16_t addr) {
@@ -538,14 +519,14 @@ static char *alloc_ident(struct sc_ctx *ctx, uint16_t addr) {
     return buffer;
 }
 
-static sc_value dup_val(sc_value val) {
+sc_value sc_dup_value(sc_value val) {
     if (val.type == SC_STRING_VAL) sc_dup(val.str);
     else if (val.type == SC_USERDATA_VAL) sc_dup(val.userdata.data);
     else if (val.type == SC_LIST_VAL) {
         sc_dup(val.list.current);
-        *val.list.current = dup_val(*val.list.current);
+        *val.list.current = sc_dup_value(*val.list.current);
         sc_dup(val.list.next);
-        *val.list.next = dup_val(*val.list.next);
+        *val.list.next = sc_dup_value(*val.list.next);
     }
     return val;
 }
@@ -555,10 +536,8 @@ static sc_value plus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     sc_value res = { 0 };
     bool real = has_real(args, nargs);
     res.type = real ? SC_REAL_VAL : SC_NUM_VAL;
-
     for (uint16_t i = 0; i < nargs; i++)
         if (real) res.real += sc_get_number(args[i]); else res.number += sc_get_number(args[i]);
-
     return res;
 }
 
@@ -619,7 +598,7 @@ static sc_value list(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     for (uint16_t i = 0; i < nargs; i++) {
         iter->type = SC_LIST_VAL;
         iter->list.current = sc_alloc(ctx, sizeof(res));
-        *iter->list.current = dup_val(args[i]);
+        *iter->list.current = sc_dup_value(args[i]);
         iter->list.next = sc_alloc(ctx, sizeof(res));
         iter = iter->list.next;
     }
@@ -633,7 +612,7 @@ static sc_value append(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     sc_value *iter = args + 0;
     while (iter->list.next->list.current != NULL) iter = iter->list.next;
     *iter->list.next = args[1];
-    return dup_val(args[0]);
+    return sc_dup_value(args[0]);
 }
 
 static sc_value cons(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
@@ -645,39 +624,32 @@ static sc_value car(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (nargs != 1) return sc_error("car: incorrect amount of arguments!");;
     if (args[0].type != SC_LIST_VAL) return sc_error("car: expected a list!");
 
-    return dup_val(*args[0].list.current);
+    return sc_dup_value(*args[0].list.current);
 }
 
 static sc_value cdr(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (nargs != 1) return sc_error("cdr: incorrect amount of arguments!");;
     if (args[0].type != SC_LIST_VAL) return sc_error("cdr: expected a list!");
 
-    return dup_val(*args[0].list.next);
+    return sc_dup_value(*args[0].list.next);
 }
 
-static sc_value begin(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) { return dup_val(args[nargs - 1]); }
+static sc_value begin(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) { return sc_dup_value(args[nargs - 1]); }
 
-static bool val_eql(sc_value a, sc_value b) {
+bool sc_value_eq(sc_value a, sc_value b) {
     if (a.type != b.type) return false;
-    switch (a.type) {
-    case SC_NUM_VAL:
-        return a.number == b.number;
-    case SC_REAL_VAL:
-        return a.real == b.real;
-    case SC_BOOL_TOK:
-        return a.boolean == b.boolean;
-    case SC_STRING_TOK:
-        return strcmp(a.str, b.str) == 0;
-    case SC_LIST_VAL:
-        {
-            sc_value *iter_a = &a; sc_value *iter_b = &b;
-            while (iter_a->list.current != NULL && iter_b->list.current != NULL) {
-                if (!val_eql(*iter_a->list.current, *iter_b->list.current))
-                    return false;
-                iter_a = iter_a->list.next; iter_b = iter_b->list.next;
-            }
-            if (iter_a->list.current == NULL && iter_b->list.current == NULL) return true;
+    else if (a.type == SC_NUM_VAL) return a.number == b.number;
+    else if (a.type == SC_REAL_VAL) return a.real == b.real;
+    else if (a.type == SC_BOOL_VAL) return a.boolean == b.boolean;
+    else if (a.type == SC_STRING_VAL) return strcmp(a.str, b.str) == 0;
+    else if (a.type == SC_LIST_VAL) {
+        sc_value *iter_a = &a; sc_value *iter_b = &b;
+        while (iter_a->list.current != NULL && iter_b->list.current != NULL) {
+            if (!sc_value_eq(*iter_a->list.current, *iter_b->list.current))
+                return false;
+            iter_a = iter_a->list.next; iter_b = iter_b->list.next;
         }
+        if (iter_a->list.current == NULL && iter_b->list.current == NULL) return true;
     }
     return false;
 }
@@ -685,8 +657,7 @@ static bool val_eql(sc_value a, sc_value b) {
 static sc_value eq(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (nargs == 0) return sc_bool(true);
     for (uint16_t i = 0; i < nargs - 1; i++)
-        if (!val_eql(args[i], args[i + 1]))
-            return sc_bool(false);
+        if (!sc_value_eq(args[i], args[i + 1])) return sc_bool(false);
     return sc_bool(true);
 }
 
@@ -801,7 +772,7 @@ static sc_value mean(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 
 static sc_value error(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (nargs != 1) return sc_error("error: incorrect amount of arguments!");
-    return sc_error(dup_val(args[0]).str);
+    return sc_error(sc_dup_value(args[0]).str);
 }
 
 static void display_val(sc_value *v) {
@@ -865,7 +836,7 @@ static sc_value at(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
         sc_value *iter = args + 0;
         for (uint16_t i = 0; i < args[1].number && iter->type != SC_NOTHING_VAL; i++) iter = iter->list.next;
         if (iter->type == SC_NOTHING_VAL) return sc_error("at: index out of range!");
-        return dup_val(*iter->list.current);
+        return sc_dup_value(*iter->list.current);
     }
 }
 
@@ -912,7 +883,7 @@ static sc_value map(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     while (in_iter != NULL && in_iter->type != SC_NOTHING_VAL) {
         iter->type = SC_LIST_VAL;
         iter->list.current = sc_alloc(ctx, sizeof(res));
-        *iter->list.current = dup_val(eval_lambda(ctx, args + 0, in_iter->list.current, 1));
+        *iter->list.current = sc_dup_value(eval_lambda(ctx, args + 0, in_iter->list.current, 1));
         iter->list.next = sc_alloc(ctx, sizeof(res));
         iter = iter->list.next;
         in_iter = in_iter->list.next;
@@ -934,7 +905,7 @@ static sc_value filter(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
         if (r.type != SC_BOOL_VAL) return sc_error("filter: expected lambda to return bool!");
         if (r.boolean == false) goto skip;
         iter->list.current = sc_alloc(ctx, sizeof(res));
-        *iter->list.current = dup_val(*in_iter->list.current);
+        *iter->list.current = sc_dup_value(*in_iter->list.current);
         iter->list.next = sc_alloc(ctx, sizeof(res));
         iter = iter->list.next;
 skip:
@@ -952,7 +923,7 @@ static sc_value find(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     while (iter != NULL && iter->type != SC_NOTHING_VAL) {
         sc_value r = eval_lambda(ctx, args + 0, iter->list.current, 1);
         if (r.type != SC_BOOL_VAL) return sc_error("find: expected lambda to return bool!");
-        if (r.boolean == true) return dup_val(*iter->list.current);
+        if (r.boolean == true) return sc_dup_value(*iter->list.current);
         iter = iter->list.next;
     }
     return sc_bool(false);

@@ -23,17 +23,12 @@ int main()
     srand(time(NULL));
     struct sc_ctx ctx = { 0 };
     ctx.user_fns = funs;
-    const char *prog = "(string 7)";
+    const char *prog = "(eq? 7 7)";
 
     sc_value res = sc_eval(&ctx, prog, strlen(prog));
 
-    if (sc_err != NULL) {
-        fprintf(stderr, "sc error: %s\n", sc_err);
-        abort();
-    }
-
     if (res.type == SC_ERROR_VAL) {
-        fprintf(stderr, "sc runtime error: %s\n", res.err);
+        fprintf(stderr, "sc error: %s\n", res.err);
         abort();
     }
 
