@@ -73,7 +73,6 @@ struct sc_gc_obj {
 static bool isspecial(char c);
 static sc_value eval_ast(struct sc_ctx *ctx);
 static sc_value get_val(struct sc_ctx *ctx, uint8_t type);
-static sc_value eval_lambda(struct sc_ctx *ctx, sc_value *lambda, sc_value *args, uint16_t nargs);
 static sc_value parse_expr(struct sc_ctx *ctx);
 static void parse_val(struct sc_ctx *ctx);
 static void append_tok(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_tok tk);
@@ -127,7 +126,6 @@ static sc_value sc_sqrt(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value sc_expt(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value mean(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value error(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
-static sc_value display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value newline(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value upcase(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value downcase(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);

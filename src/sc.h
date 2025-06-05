@@ -97,5 +97,9 @@ sc_value sc_string(struct sc_ctx *ctx, const char *cstr);
 sc_value sc_userdata(struct sc_ctx *ctx, uint16_t size, void (*on_gc)(struct sc_ctx *ctx, void *data));
 bool sc_value_eq(sc_value a, sc_value b);
 sc_value sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen);
+sc_value sc_eval_lambda(struct sc_ctx *ctx, sc_value *lambda, sc_value *args, uint16_t nargs);
+
+sc_value sc_display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+uint16_t sc_heap_usage(struct sc_ctx *ctx);
 
 #endif

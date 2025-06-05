@@ -2,11 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <getopt.h>
 
 #include "src/sc.h"
 
-void print_value(sc_value *val);
-
+static void usage(void);
+static void print_value(sc_value *val);
 static sc_value display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value f_open(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value f_read(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
@@ -18,14 +19,79 @@ struct sc_fns funs[] = {
     { false, NULL, NULL }
 };
 
-int main()
+int main(int argc, char **argv)
 {
+    char *eval, *path;
+    eval = path = NULL;
+    int c;
+
+    while ((c = getopt(argc, argv, "hf:e:")) != -1) {
+        switch (c) {
+        case 'f':
+            path = optarg;
+            break;
+        case 'e':
+            eval = optarg;
+            break;
+        case 'h':
+        default:
+            usage();
+        }
+    }
+
+    argc -= optind;
+    argv += optind;
+
     srand(time(NULL));
     struct sc_ctx ctx = { 0 };
     ctx.user_fns = funs;
-    const char *prog = "(string-append \"Hello\" \" , \" \"World\" \"!\")";
+    sc_value res = sc_nil;
 
-    sc_value res = sc_eval(&ctx, prog, strlen(prog));
+    if (eval != NULL && path != NULL) {
+        fprintf(stderr, "sc: specify either -f or -e!");
+        return 1;
+    }
+
+    if (eval != NULL) res = sc_eval(&ctx, eval, strlen(eval));
+    else if (path != NULL) {
+        char *buf = NULL;
+        int written = 0;
+        FILE *f = fopen(path, "r");
+        for (int i = 1; !feof(f); i++) {
+            buf = realloc(buf, BUFSIZ * i);
+            written += fread(buf + written, 1, BUFSIZ, f);
+        }
+        *strrchr(buf, '\n') = 0;
+        fclose(f);
+        res = sc_eval(&ctx, buf, strlen(buf));
+    } else {
+        for (;;) {
+            char *in = NULL;
+            size_t size = 0;
+            printf(">> ");
+            fflush(stdout);
+            getline(&in, &size, stdin);
+            *strrchr(in, '\n') = 0;
+            if (strcmp(".q", in) == 0 || strcmp(".exit", in) == 0) {
+                free(in);
+                exit(0);
+            } else if (strcmp(".stats", in) == 0) {
+                printf("Peak memory usage: %dB\n", sc_heap_usage(&ctx));
+                free(in);
+                continue;
+            }
+
+            res = sc_eval(&ctx, in, size);
+            if (res.type == SC_ERROR_VAL) fprintf(stderr, "sc error: %s\n", res.err);
+            else if (res.type != SC_NOTHING_VAL) {
+                sc_display(&ctx, &res, 1);
+                putchar('\n');
+            }
+
+            free(in);
+        }
+        return 0;
+    }
 
     if (res.type == SC_ERROR_VAL) {
         fprintf(stderr, "sc error: %s\n", res.err);
@@ -35,13 +101,19 @@ int main()
     if (res.type == SC_NOTHING_VAL)
         return 0;
 
-    print_value(&res);
+    sc_display(&ctx, &res, 1);
     putchar('\n');
 
     return 0;
 }
 
-void print_value(sc_value *val)
+static void usage(void)
+{
+    fprintf(stderr, "usage: sc [-h] [-f file|-e str]\n");
+    exit(1);
+}
+
+static void print_value(sc_value *val)
 {
     if (val == NULL || val->type == SC_NOTHING_VAL)
         printf("nil");

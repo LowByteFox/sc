@@ -12,6 +12,9 @@
 #include "config.h"
 
 static const char *buf = NULL;
+static struct sc_ast_ctx ast_ctx = { 0 };
+static struct sc_stack stack = { 0 };
+
 static struct sc_fns priv[] = {
     { false, "+", plus },
     { false, "-", minus },
@@ -52,7 +55,7 @@ static struct sc_fns priv[] = {
     { false, "expt", sc_expt },
     { false, "mean", mean },
     { true, "while", sc_while },
-    { false, "display", display },
+    { false, "display", sc_display },
     { false, "newline", newline },
     { false, "eq?", eq }, { false, "equal?", eq },
     { false, "error", error },
@@ -62,11 +65,13 @@ static struct sc_fns priv[] = {
 };
 
 sc_value sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen) {
-    if (ctx->heap) free(ctx->heap);
-    if (ctx->tokens) free(ctx->tokens);
-    if (ctx->locs) free(ctx->locs);
+    if (ctx->heap) { free(ctx->heap); ctx->heap = NULL; }
+    if (ctx->tokens) { free(ctx->tokens); ctx->tokens = NULL; }
+    if (ctx->locs) { free(ctx->locs); ctx->locs = NULL; }
 
     buf = buffer;
+    memset(&ast_ctx, 0, sizeof(ast_ctx));
+    memset(&stack, 0, sizeof(stack));
 
     uint16_t toks_len, toks_size, locs_len, locs_size;
     toks_len = toks_size = locs_len = locs_size = 0;
@@ -127,8 +132,6 @@ flt:
     append_tok(ctx, &toks_len, &toks_size, SC_END_TOK);
     ctx->heap = calloc(HEAP_SIZE, sizeof(uint8_t));
 
-    struct sc_ast_ctx ast_ctx = { 0 };
-    struct sc_stack stack = { 0 };
     ast_ctx.tok_limit = toks_len - 1;
     ctx->_ctx = &ast_ctx;
 
@@ -142,10 +145,11 @@ flt:
     push_frame(ctx);
     ast_ctx.eval_offset = 0;
     sc_value res = eval_ast(ctx);
-    ctx->_ctx = NULL;
-    free(ctx->tokens);
-    free(ctx->locs);
     return res;
+}
+
+uint16_t sc_heap_usage(struct sc_ctx *ctx) {
+    return ctx->_ctx->gc.arena_index - ctx->_ctx->gc.memory_begin;
 }
 
 static bool isspecial(char c) { return c == '(' || c == ')'; }
@@ -203,7 +207,7 @@ static sc_value eval_ast(struct sc_ctx *ctx) {
     }
     sc_value res = { 0 };
     if (maybe != NULL)
-        res = eval_lambda(ctx, &maybe->value, args, expr->arg_count);
+        res = sc_eval_lambda(ctx, &maybe->value, args, expr->arg_count);
     else if (!user_fn)
         res = priv[fn_index].run(ctx, args, expr->arg_count);
     else
@@ -236,7 +240,7 @@ static sc_value get_val(struct sc_ctx *ctx, uint8_t type) {
     return res;
 }
 
-static sc_value eval_lambda(struct sc_ctx *ctx, sc_value *lambda, sc_value *args, uint16_t nargs) {
+sc_value sc_eval_lambda(struct sc_ctx *ctx, sc_value *lambda, sc_value *args, uint16_t nargs) {
     if (lambda->type != SC_LAMBDA_VAL) return sc_error("sc: expected lambda, got something else!");
     if (lambda->lambda.arg_count != nargs) return sc_error("sc: incorrect amount of arguments when calling lambda");
     push_frame(ctx);
@@ -732,7 +736,7 @@ static sc_value sc_while(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 static sc_value call(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (nargs < 2) return sc_error("call: incorrect amount of arguments!");
     if (args[0].type != SC_LAMBDA_VAL) return sc_error("call: expected first argument to be a function!");
-    return eval_lambda(ctx, (args + 0), (args + 1), nargs - 1);
+    return sc_eval_lambda(ctx, (args + 0), (args + 1), nargs - 1);
 }
 
 static sc_value not(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
@@ -803,7 +807,7 @@ static void display_val(sc_value *v) {
     } else printf("??? %d!", v->type);
 }
 
-static sc_value display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+sc_value sc_display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (nargs != 1) return sc_error("display: incorrect amount of arguments!");
     display_val(args + 0); return sc_nil;
 }
@@ -875,7 +879,7 @@ static sc_value map(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     while (in_iter != NULL && in_iter->type != SC_NOTHING_VAL) {
         iter->type = SC_LIST_VAL;
         iter->list.current = sc_alloc(ctx, sizeof(res));
-        *iter->list.current = sc_dup_value(eval_lambda(ctx, args + 0, in_iter->list.current, 1));
+        *iter->list.current = sc_dup_value(sc_eval_lambda(ctx, args + 0, in_iter->list.current, 1));
         iter->list.next = sc_alloc(ctx, sizeof(res));
         iter = iter->list.next;
         in_iter = in_iter->list.next;
@@ -893,7 +897,7 @@ static sc_value filter(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     sc_value *in_iter = args + 1;
     while (in_iter != NULL && in_iter->type != SC_NOTHING_VAL) {
         iter->type = SC_LIST_VAL;
-        sc_value r = eval_lambda(ctx, args + 0, in_iter->list.current, 1);
+        sc_value r = sc_eval_lambda(ctx, args + 0, in_iter->list.current, 1);
         if (r.type != SC_BOOL_VAL) return sc_error("filter: expected lambda to return bool!");
         if (r.boolean == false) goto skip;
         iter->list.current = sc_alloc(ctx, sizeof(res));
@@ -913,7 +917,7 @@ static sc_value find(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (args[0].lambda.arg_count != 1) return sc_error("find: only 1 argument required in lambda!");
     sc_value *iter = args + 1;
     while (iter != NULL && iter->type != SC_NOTHING_VAL) {
-        sc_value r = eval_lambda(ctx, args + 0, iter->list.current, 1);
+        sc_value r = sc_eval_lambda(ctx, args + 0, iter->list.current, 1);
         if (r.type != SC_BOOL_VAL) return sc_error("find: expected lambda to return bool!");
         if (r.boolean == true) return sc_dup_value(*iter->list.current);
         iter = iter->list.next;
