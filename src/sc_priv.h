@@ -97,6 +97,7 @@ static sc_value plus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value minus(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value mult(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value divide(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
+static sc_value sc_mod(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value lt(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value lte(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value and(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);

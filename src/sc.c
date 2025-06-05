@@ -19,6 +19,8 @@ static struct sc_fns priv[] = {
     { false, "-", minus },
     { false, "*", mult },
     { false, "/", divide },
+    { false, "%", sc_mod },
+    { false, "mod", sc_mod },
     { false, "=", eql, },
     { false, "<", lt, },
     { false, "<=", lte, },
@@ -60,10 +62,6 @@ static struct sc_fns priv[] = {
     { true, "while", sc_while },
     { false, "display", display },
     { false, "newline", newline },
-    /* { false, "read", read },
-     * { false, "max", sc_max },
-     * { false, "min", sc_min },
-     */
     { false, "eq?", eq },
     { false, "equal?", eq },
     { false, "error", error },
@@ -960,6 +958,16 @@ static sc_value find(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
         iter = iter->list.next;
     }
     return sc_bool(false);
+}
+
+static sc_value sc_mod(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
+    sc_value res = { 0 }; bool real = has_real(args, nargs);
+    res.type = real ? SC_REAL_VAL : SC_NUM_VAL;
+    if (nargs == 0) return res;
+    if (real) res.real = sc_get_number(args[0]); else res.number = sc_get_number(args[0]);
+    for (uint16_t i = 1; i < nargs; i++)
+        if (real) res.real = fmod(res.real, sc_get_number(args[i])); else res.number = (uint64_t) fmod(res.number, sc_get_number(args[i]));;
+    return res;
 }
 
 /* generated functions */
