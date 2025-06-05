@@ -11,6 +11,19 @@
 
 #define stack_find(stack, ident) (stack_node_find(stack->head, ident))
 
+enum sc_tokens {
+    SC_END_TOK = 1,
+    SC_LPAREN_TOK = '(',
+    SC_RPAREN_TOK = ')',
+
+    SC_IDENT_TOK = 'I',
+    SC_NUM_TOK = 'N',
+    SC_REAL_TOK = 'R',
+    SC_BOOL_TOK = 'B',
+    SC_STRING_TOK = 'S',
+    SC_LIST_TOK = 'L',
+};
+
 enum sc_node_types {
     SC_AST_EXPR = 1,
     SC_AST_IDENT,

@@ -11,19 +11,6 @@
 #define sc_bool(val) ((sc_value) { .type = SC_BOOL_VAL, .boolean = val })
 #define sc_error(msg) ((sc_value) { .type = SC_ERROR_VAL, .err = msg })
 
-enum sc_tokens {
-    SC_END_TOK = 1,
-    SC_LPAREN_TOK = '(',
-    SC_RPAREN_TOK = ')',
-
-    SC_IDENT_TOK = 'I',
-    SC_NUM_TOK = 'N',
-    SC_REAL_TOK = 'R',
-    SC_BOOL_TOK = 'B',
-    SC_STRING_TOK = 'S',
-    SC_LIST_TOK = 'L',
-};
-
 enum sc_val_type {
     SC_NOTHING_VAL = 0,
     SC_NUM_VAL,
@@ -88,17 +75,19 @@ struct sc_val {
     };
 };
 
+sc_value sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen);
+sc_value sc_eval_lambda(struct sc_ctx *ctx, sc_value *lambda, sc_value *args, uint16_t nargs);
+
 void *sc_alloc(struct sc_ctx *ctx, uint16_t size);
 void sc_free(struct sc_ctx *ctx, void *ptr);
 void sc_dup(void *ptr);
 sc_value sc_dup_value(sc_value val);
 void sc_free_value(struct sc_ctx *ctx, sc_value val);
+
 sc_value sc_string(struct sc_ctx *ctx, const char *cstr);
 sc_value sc_userdata(struct sc_ctx *ctx, uint16_t size, void (*on_gc)(struct sc_ctx *ctx, void *data));
-bool sc_value_eq(sc_value a, sc_value b);
-sc_value sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen);
-sc_value sc_eval_lambda(struct sc_ctx *ctx, sc_value *lambda, sc_value *args, uint16_t nargs);
 
+bool sc_value_eq(sc_value a, sc_value b);
 sc_value sc_display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 uint16_t sc_heap_usage(struct sc_ctx *ctx);
 
