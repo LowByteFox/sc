@@ -23,7 +23,7 @@ int main()
     srand(time(NULL));
     struct sc_ctx ctx = { 0 };
     ctx.user_fns = funs;
-    const char *prog = "(eq? 7 7)";
+    const char *prog = "(string-append \"Hello\" \" , \" \"World\" \"!\")";
 
     sc_value res = sc_eval(&ctx, prog, strlen(prog));
 

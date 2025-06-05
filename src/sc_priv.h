@@ -131,7 +131,6 @@ static sc_value display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value newline(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value upcase(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value downcase(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
-static sc_value str_append(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value str_contains(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value at(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);
 static sc_value tonum(struct sc_ctx *ctx, sc_value *args, uint16_t nargs);

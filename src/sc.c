@@ -17,8 +17,7 @@ static struct sc_fns priv[] = {
     { false, "-", minus },
     { false, "*", mult },
     { false, "/", divide },
-    { false, "%", sc_mod },
-    { false, "mod", sc_mod },
+    { false, "%", sc_mod }, { false, "mod", sc_mod },
     { false, "=", eql, },
     { false, "<", lt, },
     { false, "<=", lte, },
@@ -31,26 +30,21 @@ static struct sc_fns priv[] = {
     { false, "cdr", cdr },
     { false, "cons", cons },
     { false, "list", list },
-    { false, "length", len },
-    { false, "append", append },
+    { false, "length", len }, { false, "string-length", len },
+    { false, "append", append }, { false, "string-append", append },
     { false, "map", map },
     { false, "filter", filter },
     { false, "find", find },
     { false, "at", at },
     { false, "string", tostring },
-    { false, "string-length", len },
     { false, "string-upcase", upcase },
     { false, "string-downcase", downcase },
-    { false, "string-append", str_append },
     { false, "string-contains?", str_contains },
-    { true, "if", cond },
-    { true, "cond", cond },
+    { true, "if", cond }, { true, "cond", cond },
     { true, "define", define },
     { false, "begin", begin },
-    { true, "lambda", lambda },
-    { true, "λ", lambda },
-    { true, "let", let },
-    { true, "set!", let },
+    { true, "lambda", lambda }, { true, "λ", lambda },
+    { true, "let", let }, { true, "set!", let },
     { false, "call", call },
     { false, "random", rnd },
     { false, "abs", sc_abs },
@@ -60,8 +54,7 @@ static struct sc_fns priv[] = {
     { true, "while", sc_while },
     { false, "display", display },
     { false, "newline", newline },
-    { false, "eq?", eq },
-    { false, "equal?", eq },
+    { false, "eq?", eq }, { false, "equal?", eq },
     { false, "error", error },
     { false, "number", tonum },
     { false, "real", toreal },
@@ -607,12 +600,26 @@ static sc_value list(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 }
 
 static sc_value append(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    if (nargs != 2) return sc_error("append: incorrect amount of arguments!");
-    if (args[0].type != SC_LIST_VAL || args[1].type != SC_LIST_VAL) return sc_error("append: expected lists!");
-    sc_value *iter = args + 0;
-    while (iter->list.next->list.current != NULL) iter = iter->list.next;
-    *iter->list.next = args[1];
-    return sc_dup_value(args[0]);
+    if (nargs < 1) return sc_error("append: incorrect amount of arguments!");
+    if (args[0].type == SC_LIST_VAL) {
+        sc_value *iter = args + 0;
+        for (uint16_t i = 1; i < nargs; i++) {
+            if (args[i].type != SC_LIST_VAL) return sc_error("append: expected lists!");
+            while (iter->list.next->list.current != NULL) iter = iter->list.next;
+            *iter->list.next = args[i];
+        }
+        return sc_dup_value(args[0]);
+    } else if (args[0].type == SC_STRING_VAL) {
+        uint16_t final_len = 0;
+        for (uint16_t i = 1; i < nargs; i++) {
+            if (args[i].type != SC_STRING_VAL) return sc_error("string-append: expected a string!");
+            final_len += strlen(args[i].str);
+        }
+        char *str = sc_alloc(ctx, final_len + 1); str[0] = 0;
+        for (uint16_t i = 0; i < nargs; i++) strcat(str, args[i].str);
+        return (sc_value) { .type = SC_STRING_VAL, .str = str };
+    }
+    return sc_error("append: expected either lists or strings!");
 }
 
 static sc_value cons(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
@@ -802,21 +809,6 @@ static sc_value display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 }
 
 static sc_value newline(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) { putchar('\n'); return sc_nil; }
-
-static sc_value str_append(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
-    if (nargs < 1) return sc_error("string-append: incorrect amount of arguments!");
-    uint16_t i, iter_size, final_len = 0;
-    for (i = 0; i < nargs; i++) {
-        if (args[i].type != SC_STRING_VAL) return sc_error("string-append: expected a string!");
-        final_len += strlen(args[i].str);
-    }
-    char *str = sc_alloc(ctx, final_len + 1); iter_size = 0;
-    for (i = 0; i < nargs; i++) {
-        uint16_t len = strlen(args[i].str);
-        memcpy(str + iter_size, args[i].str, len); iter_size += len;
-    } str[iter_size] = 0;
-    return (sc_value) {.type = SC_STRING_VAL, .str = str};
-}
 
 static sc_value str_contains(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (nargs != 2) return sc_error("string-contains?: incorrect amount of arguments!");
