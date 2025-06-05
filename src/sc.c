@@ -81,7 +81,7 @@ sc_value sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen) {
         if (isspace(c)) continue;
 
         if (c == ';') {
-            while (*buffer != '\n') { buffer++; i++; } continue;
+            while (i < buflen && *buffer != '\n') { buffer++; i++; } continue;
         }
 
         if (isspecial(c)) {
@@ -91,6 +91,7 @@ sc_value sc_eval(struct sc_ctx *ctx, const char *buffer, uint16_t buflen) {
         }
 
         if (isdigit(c) || c == '-') {
+            if (c == '-' && (!isdigit(buffer[1]))) goto ident;
             bool parsed_float = false;
             append_tok(ctx, &toks_len, &toks_size, SC_NUM_TOK);
             append_loc(ctx, &locs_len, &locs_size, i);
@@ -121,6 +122,7 @@ flt:
                     c = *buffer;
                 } while (c != '"');
             } else {
+ident:
                 append_tok(ctx, &toks_len, &toks_size, SC_IDENT_TOK);
                 append_loc(ctx, &locs_len, &locs_size, i);
 
@@ -142,13 +144,18 @@ flt:
     if (ctx->tokens[0] != '(') return sc_error("Expected '('!");
 
     ctx->_ctx->gc.memory_limit = HEAP_SIZE;
-    sc_value parse_res = parse_expr(ctx);
-    if (parse_res.type == SC_ERROR_VAL) return parse_res;
+    int expr_count = 0;
+    while (ctx->_ctx->tok_index < ctx->_ctx->tok_limit) {
+        sc_value parse_res = parse_expr(ctx);
+        if (parse_res.type == SC_ERROR_VAL) return parse_res;
+        expr_count++;
+    }
     ctx->_stack = &stack;
     ctx->_ctx->gc.memory_begin = ctx->_ctx->gc.arena_index;
     push_frame(ctx);
     ast_ctx.eval_offset = 0;
-    sc_value res = eval_ast(ctx);
+    sc_value res = sc_nil;
+    for (int i = 0; i < expr_count; i++) res = eval_ast(ctx);
     return res;
 }
 
@@ -173,9 +180,11 @@ static sc_value eval_ast(struct sc_ctx *ctx) {
     struct sc_stack_kv *maybe = NULL;
 
     if (fn_index == -1) {
-        for (uint8_t i = 0; ctx->user_fns[i].name != NULL; i++) {
-            if (strcmp(it, ctx->user_fns[i].name) == 0) {
-                fn_index = i; user_fn = true; break;
+        if (ctx->user_fns != NULL) {
+            for (uint8_t i = 0; ctx->user_fns[i].name != NULL; i++) {
+                if (strcmp(it, ctx->user_fns[i].name) == 0) {
+                    fn_index = i; user_fn = true; break;
+                }
             }
         }
 
@@ -327,7 +336,7 @@ static void append_loc(struct sc_ctx *ctx, uint16_t *len, uint16_t *sz, sc_loc l
 
 static char *get_ident(struct sc_ctx *ctx, struct sc_ast_val *val) {
     const char *ident_s = buf + val->value;
-    size_t len = strcspn(ident_s, " ()");
+    size_t len = strcspn(ident_s, " \n()");
     char *ident = sc_alloc(ctx, len + 1);
     memcpy(ident, ident_s, len);
     ident[len] = 0;
@@ -513,7 +522,7 @@ static bool has_real(sc_value *args, uint16_t nargs) {
 }
 
 static char *alloc_ident(struct sc_ctx *ctx, uint16_t addr) {
-    size_t len = strcspn(buf + addr, " ()");
+    size_t len = strcspn(buf + addr, " \n()");
     char *buffer = sc_alloc(ctx, len + 1);
     memcpy(buffer, buf + addr, len);
     buffer[len] = 0;
@@ -612,7 +621,8 @@ static sc_value append(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (args[0].type == SC_LIST_VAL) {
         sc_value *iter = args + 0;
         for (uint16_t i = 1; i < nargs; i++) {
-            if (args[i].type != SC_LIST_VAL) return sc_error("append: expected lists!");
+            if (args[i].type != SC_LIST_VAL && args[i].type != SC_NOTHING_VAL) return sc_error("append: expected lists!");
+            if (args[i].type == SC_NOTHING_VAL) continue;
             while (iter->list.next->list.current != NULL) iter = iter->list.next;
             *iter->list.next = args[i];
         }
@@ -790,12 +800,15 @@ static sc_value error(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     return sc_error(sc_dup_value(args[0]).str);
 }
 
-static void display_val(sc_value *v) {
+static void display_val(sc_value *v, bool in_list) {
     if (v == NULL || v->type == SC_NOTHING_VAL) printf("nil");
     else if (v->type == SC_NUM_VAL) printf("%"PRIi64, v->number);
     else if (v->type == SC_REAL_VAL) printf("%.15f", v->real);
     else if (v->type == SC_BOOL_VAL) printf("%s", v->boolean ? "#t" : "#f");
-    else if (v->type == SC_STRING_VAL) printf("%s", v->str);
+    else if (v->type == SC_STRING_VAL) {
+        if (!in_list) printf("%s", v->str);
+        else printf("\"%s\"", v->str);
+    }
     else if (v->type == SC_LAMBDA_VAL) printf("λ(%d) => ...", v->lambda.arg_count);
     else if (v->type == SC_ERROR_VAL) printf("err(%s)", v->err);
     else if (v->type == SC_LAZY_EXPR_VAL) printf("addr(%d)", v->lazy_addr);
@@ -803,7 +816,7 @@ static void display_val(sc_value *v) {
     else if (v->type == SC_LIST_VAL) {
         sc_value *iter = v; putchar('(');
         while (iter->list.current != NULL) {
-            display_val(iter->list.current);
+            display_val(iter->list.current, true);
             if (iter->list.next->type != SC_NOTHING_VAL) putchar(' ');
             iter = iter->list.next;
         }
@@ -813,7 +826,7 @@ static void display_val(sc_value *v) {
 
 sc_value sc_display(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (nargs != 1) return sc_error("display: incorrect amount of arguments!");
-    display_val(args + 0); return sc_nil;
+    display_val(args + 0, false); return sc_nil;
 }
 
 static sc_value newline(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) { putchar('\n'); return sc_nil; }
