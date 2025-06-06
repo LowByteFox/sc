@@ -20,7 +20,7 @@ static struct sc_fns priv[] = {
     { false, "-", minus },
     { false, "*", mult },
     { false, "/", divide },
-    { false, "%", sc_mod }, { false, "mod", sc_mod },
+    { false, "%", sc_mod }, { false, "modulo", sc_mod },
     { false, "=", eql, },
     { false, "<", lt, },
     { false, "<=", lte, },
