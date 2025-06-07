@@ -4,11 +4,10 @@ import std::io;
 import std::io::file;
 import std::os;
 import std::core::mem;
+import std::core::mem::allocator;
 
 extern char *optarg;
 extern int optind;
-extern int opterr;
-extern int optopt;
 extern fn int getopt(int argc, char** argv, char *optstring);
 
 fn int main(int argc, char **argv)
@@ -34,6 +33,10 @@ fn int main(int argc, char **argv)
 
 	argc -= optind;
 	argv += optind;
+	Allocator alloc = allocator::heap();
+	Context ctx;
+	ctx.init(alloc);
+	defer ctx.deinit();
 
 	if (eval != null && path != null) {
 		(void) io::fprintn(io::stderr(), "sc: specify either -e or -f!");
@@ -41,21 +44,11 @@ fn int main(int argc, char **argv)
 	}
 
 	if (eval != null) {
+		ctx.eval(eval.str_view());
 	} else if (path != null) {
-		File f = file::open(path.str_view(), "r")!!;
-		defer (void) f.close();
-		usz off = 0;
-		char* content = null;
-
-		while (!f.eof()) {
-			content = mem::realloc(content, off + 512);
-			/* why read of 513? */
-			off += f.read(content[off..off + 512 - 1])!!;
-		}
-		content[off - 1] = '\0';
-		io::printn(((ZString) content).str_view());
-
-		mem::free(content);
+		String content = (String) file::load(mem, path.str_view())!!;
+		io::printn(content);
+		content.free(allocator::heap());
 	} else {
 		while (true) {
 			io::print(">> ");
@@ -66,7 +59,9 @@ fn int main(int argc, char **argv)
 			if (in == ".q" || in == ".quit" || in == ".exit") break;
 			if (in == ".stats") {}
 
-			io::printfn("You typed: %s", in);
+			ctx.eval(in);
+			ctx.deinit();
+			ctx.init(alloc);
 		}
 	}
 
