@@ -2,6 +2,9 @@
 Tiny, embeddable Scheme-like language implemented in C
 > Project is highly inspired by [fe](https://github.com/rxi/fe)
 
+> [!WARNING]  
+> the C version is experiencing UB due to how data are allocated, use with caution
+
 ```scm
 (let reverse
   (lambda (lst)
