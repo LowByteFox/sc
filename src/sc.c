@@ -197,7 +197,7 @@ static sc_value eval_ast(struct sc_ctx *ctx) {
     sc_value args[expr->arg_count];
     memset(args, 0, sizeof(sc_value) * expr->arg_count);
 
-    if (priv[fn_index].lazy) {
+    if (fn_index > -1 && priv[fn_index].lazy) {
         for (uint16_t i = 0; i < expr->arg_count; i++) {
             args[i].type = SC_LAZY_EXPR_VAL;
             args[i].lazy_addr = ctx->_ctx->eval_offset;
@@ -642,7 +642,18 @@ static sc_value append(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 
 static sc_value cons(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (nargs != 2) return sc_error("cons: incorrect amount of arguments!");;
-    return list(ctx, args, nargs);
+    if (args[0].type != SC_LIST_VAL && args[1].type != SC_LIST_VAL)
+        return list(ctx, args, nargs);
+    else if (args[0].type != SC_LIST_VAL && args[1].type == SC_LIST_VAL) {
+        sc_value lst = list(ctx, args, 1);
+        sc_value new_args[2] = {lst, args[1]};
+        return append(ctx, new_args, 2);
+    } else if (args[0].type == SC_LIST_VAL && args[1].type != SC_LIST_VAL) {
+        sc_value lst = list(ctx, args + 1, 1);
+        sc_value new_args[2] = {args[0], lst};
+        return append(ctx, new_args, 2);
+    }
+    return sc_nil;
 }
 
 static sc_value car(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
@@ -761,10 +772,10 @@ static sc_value not(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
 
 static sc_value rnd(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {
     if (nargs == 1 && args[0].type == SC_NUM_VAL)
-        return sc_num(random() % args[0].number);
+        return sc_num(rand() % args[0].number);
     else if (nargs == 1 && args[0].type == SC_REAL_VAL)
-        return sc_real(((float) random()/(float) RAND_MAX) * args[0].real);
-    return sc_num(random() % UINT64_MAX);
+        return sc_real(((float) rand()/(float) RAND_MAX) * args[0].real);
+    return sc_num(rand() % UINT64_MAX);
 }
 
 static sc_value sc_abs(struct sc_ctx *ctx, sc_value *args, uint16_t nargs) {

@@ -80,6 +80,7 @@ struct sc_stack {
 struct sc_gc_obj {
     uint16_t size;
     uint16_t count;
+	uint32_t padding;
     uint8_t data[];
 };
 
