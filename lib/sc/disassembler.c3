@@ -13,11 +13,14 @@ fn void disassemble(BytecodeChunk *chunk, String name) {
 		Instr instr = chunk.instructions.get(i);
 		switch (instr) {
 		case RET:
+		case CALL:
+		case ARG_START:
+		case ARG_END:
 			io::printfn("%4d | %s", i, instr.name);
 		case PUSH_CONST:
 			ushort pad = (ushort) align(i + 1, ushort.alignof);
 			ushort *ptr = (ushort*) chunk.instructions.get_ref(pad);
-			io::printf("%4d | %-16s %6d => ", i, instr.name, *ptr);
+			io::printf("%4d | %-12s %6d => ", i, instr.name, *ptr);
 			sc::debug::print_constant(chunk, *ptr);
 			i = pad + ushort.sizeof - 1;
 		default:

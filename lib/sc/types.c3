@@ -18,13 +18,15 @@ enum Type : char {
 	FLOAT,
 	BOOL,
 	STRING,
+	SYMBOL,
 }
 
 union ValueUnion {
 	bool boolean;
 	long num;
 	double flt;
-	String str; /* works for symbol as well */
+	String symbol;
+	String str;
 }
 
 struct Value {
@@ -33,9 +35,12 @@ struct Value {
 }
 
 enum Instr : char (String name) {
-	INVALID = "Invalid",
-	RET = "Return",
+	INVALID =    "Invalid",
+	RET =        "Return",
 	PUSH_CONST = "Constant",
+	CALL =       "Call",
+	ARG_START =  "Args Start",
+	ARG_END =    "Args End",
 }
 
 alias TokenList = List{ Token };
