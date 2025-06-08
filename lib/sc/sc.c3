@@ -74,6 +74,6 @@ fn BytecodeChunk compile(Context *self) {
 	return sc::compiler::compile(self);
 }
 
-fn void disassemble(BytecodeChunk *chunk, String name) {
-	sc::disassembler::disassemble(chunk, name);
+fn void disassemble(BytecodeChunk *chunk, ZString name) @export("sc_disassemble") {
+	sc::disassembler::disassemble(chunk, name.str_view());
 }
