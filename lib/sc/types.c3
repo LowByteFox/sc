@@ -16,11 +16,15 @@ enum Type : char {
 	NOTHING,
 	NUMBER,
 	FLOAT,
+	BOOL,
+	STRING,
 }
 
 union ValueUnion {
+	bool boolean;
 	long num;
 	double flt;
+	String str; /* works for symbol as well */
 }
 
 struct Value {

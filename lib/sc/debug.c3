@@ -13,6 +13,12 @@ fn void print_value(Value val) {
 	switch (val.type) {
 	case NUMBER:
 		io::printfn("%d", val.value.num);
+	case FLOAT:
+		io::printfn("%f", val.value.flt);
+	case BOOL:
+		io::printfn("%s", val.value.boolean ? "#t" : "#f");
+	case STRING:
+		io::printfn("\"%s\"", val.value.str);
 	default:
 		io::printn("nil");
 	}

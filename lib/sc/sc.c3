@@ -67,6 +67,7 @@ fn void Context.eval(&self, char[] code) {
 	self.tokens.push(Token.END);
 
 	BytecodeChunk chunk = compile(self);
+	io::printn("");
 	disassemble(&chunk, "Main");
 }
 
