@@ -1,10 +1,8 @@
 module sc;
 import libc;
 import std::io;
-import std::io::file;
 import std::os;
 import std::core::mem;
-import std::core::mem::allocator;
 
 extern char *optarg;
 extern int optind;
@@ -33,23 +31,24 @@ fn int main(int argc, char **argv)
 
 	argc -= optind;
 	argv += optind;
-	Allocator alloc = allocator::heap();
+	Allocator alloc = mem;
 	Context ctx;
 	ctx.init(alloc);
-	defer ctx.deinit();
+	defer ctx.free();
 
 	if (eval != null && path != null) {
 		(void) io::fprintn(io::stderr(), "sc: specify either -e or -f!");
 		return 1;
 	}
 
-	if (eval != null) {
+	switch {
+	case eval != null:
 		ctx.eval(eval.str_view());
-	} else if (path != null) {
+	case path != null:
 		String content = (String) file::load(mem, path.str_view())!!;
 		io::printn(content);
 		content.free(allocator::heap());
-	} else {
+	default:
 		while (true) {
 			io::print(">> ");
 			io::stdout().flush()!!;
@@ -60,7 +59,7 @@ fn int main(int argc, char **argv)
 			if (in == ".stats") {}
 
 			ctx.eval(in);
-			ctx.deinit();
+			ctx.free();
 			ctx.init(alloc);
 		}
 	}
