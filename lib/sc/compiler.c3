@@ -18,14 +18,12 @@ fn ushort BytecodeChunk.compile_value(&self, Context *ctx, ushort i) @private {
 fn ushort BytecodeChunk.compile_expr(&self, Context *ctx, ushort begin_i) @private {
     self.instructions.push(Instr.CALL);
     ushort i = begin_i + 1;
+    bool added_arg_start = false;
     for (; ctx.tokens.get(i) != RPAREN; i++) {
         if (i == begin_i + 1) {
-            self.instructions.push(Instr.JMP);
-            usz index = self.instructions.alloc_ushort();
             i = self.compile_value(ctx, i);
-            ushort *where_to = (ushort*) self.instructions.get_ref(index);
-            *where_to = (ushort) self.instructions.len();
             self.instructions.push(Instr.ARG_START);
+            added_arg_start = true;
             continue;
         }
 
@@ -35,6 +33,7 @@ fn ushort BytecodeChunk.compile_expr(&self, Context *ctx, ushort begin_i) @priva
         ushort *where_to = (ushort*) self.instructions.get_ref(index);
         *where_to = (ushort) self.instructions.len();
     }
+    if (!added_arg_start) self.instructions.push(Instr.ARG_START);
     self.instructions.push(Instr.ARG_END);
 
     return i;
@@ -44,7 +43,6 @@ fn BytecodeChunk compile(Context *ctx) {
     BytecodeChunk chunk;
     chunk.instructions.init(ctx.allocator);
     chunk.constants.init(ctx.allocator);
-    chunk.instructions.push(Instr.RET);
     for (ushort i = 0; ctx.tokens.get(i) != END; i++) {
         i = chunk.compile_value(ctx, i);
     }

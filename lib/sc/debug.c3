@@ -9,7 +9,7 @@ fn void print_constant(BytecodeChunk *chunk, ushort index) {
 	print_value(chunk.constants.get(index));
 }
 
-fn void print_value(Value val) {
+fn void print_value(Value val) @export("sc_print_value") {
 	switch (val.type) {
 	case NUMBER:
 		io::printfn("%d", val.value.num);

@@ -40,7 +40,6 @@ struct Value {
 
 enum Instr : char (String name) {
     INVALID =    "Invalid",
-    RET =        "Return",
     PUSH_CONST = "Constant",
     JMP =        "Jump",
     CALL =       "Call",
@@ -58,12 +57,23 @@ struct BytecodeChunk {
     ValueList constants;
 }
 
+struct Vm {
+    BytecodeChunk *chunk;
+    ValueList stack;
+    usz stack_top;
+    usz ip;
+    Value *return_value;
+}
+
 struct Context {
     Allocator allocator;
     TokenList tokens;
     LocList locs;
     char[] code;
+    Vm vm;
 }
+
+const Value SC_NIL = (Value) {};
 
 <*
 @require new_size == 0 || self.capacity != 0

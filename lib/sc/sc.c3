@@ -66,13 +66,24 @@ fn void Context.eval(&self, char[] code) {
 
 	self.tokens.push(Token.END);
 
-	BytecodeChunk chunk = compile(self);
-	io::printn("");
-	disassemble(&chunk, "Main");
+    BytecodeChunk chunk = compile(self);
+    interpret(self, &chunk);
 }
 
 fn BytecodeChunk compile(Context *self) {
 	return sc::compiler::compile(self);
+}
+
+fn Value interpret(Context *self, BytecodeChunk *chunk) {
+    self.vm.chunk = chunk;
+    self.vm.ip = 0;
+    self.vm.return_value = &sc::SC_NIL;
+
+    while (self.vm.ip < chunk.instructions.len()) {
+        sc::vm::interpret(&self.vm);
+    }
+
+    return *self.vm.return_value;
 }
 
 fn void disassemble(BytecodeChunk *chunk, ZString name) @export("sc_disassemble") {

@@ -12,7 +12,6 @@ fn void disassemble(BytecodeChunk *chunk, String name) {
 	for (ushort i = 0; i < chunk.instructions.len(); i++) {
 		Instr instr = chunk.instructions.get(i);
 		switch (instr) {
-		case RET:
 		case CALL:
 		case ARG_START:
 		case ARG_END:
@@ -26,10 +25,18 @@ fn void disassemble(BytecodeChunk *chunk, String name) {
 			ushort pad = (ushort) align(i + 1, ushort.alignof);
 			ushort *ptr = (ushort*) chunk.instructions.get_ref(pad);
 			io::printf("%4d | %-12s %6d => ", i, instr.name, *ptr);
-			sc::debug::print_constant(chunk, *ptr);
+			debug::print_constant(chunk, *ptr);
 			i = pad + ushort.sizeof - 1;
 		default:
 			io::printfn("Unhandled instruction %d!", instr.ordinal);
 		}
 	}
+}
+
+fn void print_stack(Vm *vm) {
+    io::printn("== Stack ==");
+    for (ushort i = 0; i < vm.stack_top; i++) {
+        io::printf("%4d | ", i);
+        debug::print_value(vm.stack.get(i));
+    }
 }
