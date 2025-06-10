@@ -27,10 +27,12 @@ enum Type : char {
     SYMBOL,
     LIST,
     CFUNC,
+    LAZY_ADDR,
 }
 
 union ValueUnion {
     bool boolean;
+    ushort lazy;
     long num;
     double flt;
     String symbol;
@@ -58,7 +60,7 @@ alias InstrList = List{ Instr };
 alias ValueArr = List{ Value };
 alias ValueStore = HashMap{ String, Value };
 alias ValueList = LinkedList{ Value };
-alias Function = fn Value(Value[]);
+alias Function = fn Value(Context*, Value[]);
 
 struct BytecodeChunk {
     InstrList instructions;
@@ -77,12 +79,12 @@ struct CFunction {
 }
 
 struct Vm {
-    Allocator allocator;
     BytecodeChunk *chunk;
     ValueArr stack;
     usz stack_top;
     usz ip;
     Environment *current_env;
+    Context *ctx;
 }
 
 struct Context {
@@ -94,6 +96,8 @@ struct Context {
 }
 
 const Value SC_NIL = (Value) {};
+fn Value sc_num(ulong num) => (Value) { NUMBER, (ValueUnion) { .num = num } };
+fn Value sc_lazy(ushort num) => (Value) { LAZY_ADDR, (ValueUnion) { .lazy = num } };
 
 <*
 @require new_size == 0 || self.capacity != 0

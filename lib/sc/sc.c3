@@ -8,6 +8,9 @@ fn void Context.init(&self, Allocator allocator) {
 	self.allocator = allocator;
 	self.tokens.init(self.allocator);
 	self.locs.init(self.allocator);
+    self.vm.ctx = self;
+    self.vm.current_env = mem::allocator::new(allocator, Environment);
+    self.vm.current_env.store.init(allocator);
 }
 
 fn void Context.free(&self) {
@@ -16,6 +19,21 @@ fn void Context.free(&self) {
 }
 
 macro bool is_special(char c) @private => c == '(' || c == ')';
+
+fn void Context.set_var(&self, String name, Value val) {
+    self.vm.current_env.store[name] = val;
+}
+
+fn Value? Context.get_var(&self, String name) => self.vm.current_env.store[name];
+
+fn Value Context.eval_at(&self, ushort ip, bool lazy = false) {
+    usz old = self.vm.ip;
+    defer self.vm.ip = old;
+    self.vm.ip = ip;
+
+    sc::vm::interpret(&self.vm, lazy);
+    return self.vm.pop();
+}
 
 fn void Context.eval(&self, char[] code) {
 	self.code = code;
