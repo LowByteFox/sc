@@ -77,13 +77,14 @@ fn BytecodeChunk compile(Context *self) {
 fn Value interpret(Context *self, BytecodeChunk *chunk) {
     self.vm.chunk = chunk;
     self.vm.ip = 0;
-    self.vm.return_value = &sc::SC_NIL;
 
     while (self.vm.ip < chunk.instructions.len()) {
         sc::vm::interpret(&self.vm);
     }
 
-    return *self.vm.return_value;
+    sc::disassembler::print_stack(&self.vm);
+
+    return self.vm.pop();
 }
 
 fn void disassemble(BytecodeChunk *chunk, ZString name) @export("sc_disassemble") {

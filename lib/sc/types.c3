@@ -1,5 +1,7 @@
 module sc;
 import std::collections::list;
+import std::collections::linkedlist;
+import std::collections::map;
 
 macro align(b, a) @private {
     return b % a == 0 ? b : b + a - b % a;
@@ -23,6 +25,8 @@ enum Type : char {
     BOOL,
     STRING,
     SYMBOL,
+    LIST,
+    CFUNC,
 }
 
 union ValueUnion {
@@ -31,6 +35,7 @@ union ValueUnion {
     double flt;
     String symbol;
     String str;
+    ValueList list;
 }
 
 struct Value {
@@ -50,19 +55,34 @@ enum Instr : char (String name) {
 alias TokenList = List{ Token };
 alias LocList = List{ ushort };
 alias InstrList = List{ Instr };
-alias ValueList = List{ Value };
+alias ValueArr = List{ Value };
+alias ValueStore = HashMap{ String, Value };
+alias ValueList = LinkedList{ Value };
+alias Function = fn Value(Value[]);
 
 struct BytecodeChunk {
     InstrList instructions;
-    ValueList constants;
+    ValueArr constants;
+}
+
+struct Environment {
+    ValueStore store;
+    Environment *parent;
+}
+
+struct CFunction {
+    String name;
+    Function fun;
+    bool lazy;
 }
 
 struct Vm {
+    Allocator allocator;
     BytecodeChunk *chunk;
-    ValueList stack;
+    ValueArr stack;
     usz stack_top;
     usz ip;
-    Value *return_value;
+    Environment *current_env;
 }
 
 struct Context {
@@ -78,8 +98,7 @@ const Value SC_NIL = (Value) {};
 <*
 @require new_size == 0 || self.capacity != 0
 *>
-fn usz InstrList.force_set_size(&self, usz new_size) @inline @private
-{
+fn usz InstrList.force_set_size(&self, usz new_size) @inline @private {
     usz old_size = self.size;
     self._update_size_change(old_size, new_size);
     self.size = new_size;
