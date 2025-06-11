@@ -4,6 +4,7 @@ import sc;
 import sc::builtins @public;
 import libc;
 import std::io;
+import std::core::mem;
 
 macro align(b, a) @private {
 	return b % a == 0 ? b : b + a - b % a;
@@ -27,9 +28,34 @@ fn Value Vm.pop(&self) {
     return sc::SC_NIL;
 }
 
-fn void Vm.skip_jump(&self) @private {
+fn void Vm.push_frame(&self) {
+    Environment *env = mem::allocator::new(self.ctx.allocator, Environment);
+    env.store.init(self.ctx.allocator);
+    env.parent = self.current_env;
+    self.current_env = env;
+}
+
+fn void Vm.pop_frame(&self) {
+    Environment *env = self.current_env;
+    if (env.parent == null) return;
+    self.current_env = env.parent;
+    env.store.free();
+    mem::allocator::free(self.ctx.allocator, env);
+}
+
+fn void Vm.skip_jump(&self) {
     ushort pad = (ushort) align(self.ip + 1, ushort.alignof);
     self.ip = pad + ushort.sizeof;
+}
+
+fn Instr Vm.get_instr(&self) => self.chunk.instructions.get(self.ip);
+
+fn Value Vm.get_const(&self) {
+    ushort pad = (ushort) align(self.ip + 1, ushort.alignof);
+    ushort *ptr = (void*) self.chunk.instructions.get_ref(pad);
+    Value v = self.chunk.constants.get(*ptr);
+    self.ip = pad + ushort.sizeof;
+    return v;
 }
 
 fn ushort Vm.get_jump(&self) @private {
@@ -39,31 +65,44 @@ fn ushort Vm.get_jump(&self) @private {
     return *ptr;
 }
 
+fn Value Vm.interpret_lambda(&self, Value *lambda, Value[] args) {
+    self.push_frame();
+    defer self.pop_frame();
+    foreach (ushort i, String arg : lambda.value.lambda.args) {
+        self.ctx.set_var(arg, args[i]);
+    }
+    usz old_ip = self.ip;
+    defer self.ip = old_ip;
+    self.ip = lambda.value.lambda.body;
+    interpret(self);
+    return self.pop();
+}
+
 fn void interpret(Vm *vm, bool resolve = false) {
     Instr instr = vm.chunk.instructions.get(vm.ip);
     switch (instr) {
     case PUSH_CONST:
-        ushort pad = (ushort) align(vm.ip + 1, ushort.alignof);
-        ushort *ptr = (void*) vm.chunk.instructions.get_ref(pad);
-        Value v = vm.chunk.constants.get(*ptr);
+        Value v = vm.get_const();
         if (v.type == SYMBOL && !resolve) { vm.push(vm.ctx.get_var(v.value.symbol))!!; }
         else { vm.push(v); }
-        vm.ip = pad + ushort.sizeof;
     case CALL:
         usz arg_count = 0;
         vm.ip++;
         interpret(vm, true);
         Value ident = vm.pop();
-        String name = ident.value.symbol;
         isz fn_index = -1;
-        foreach (isz i, CFunction fun : builtins::fns) {
-            if (fun.name == name) {
-                fn_index = i;
-                break;
+        bool lazy = false;
+        if (ident.type == SYMBOL) {
+            String name = ident.value.symbol;
+            foreach (isz i, CFunction fun : builtins::fns) {
+                if (fun.name == name) {
+                    fn_index = i;
+                    break;
+                }
             }
-        }
-        if (fn_index == -1) return;
-        bool lazy = builtins::fns[fn_index].lazy;
+            if (fn_index == -1) return;
+            lazy = builtins::fns[fn_index].lazy;
+        } /* let's pretend there is lambda */
         vm.ip++;
         instr = vm.chunk.instructions.get(vm.ip);
         do {
@@ -82,11 +121,19 @@ fn void interpret(Vm *vm, bool resolve = false) {
         vm.ip++;
         isz start = vm.stack.len() - arg_count;
         Value[] args = vm.stack.array_view()[start:arg_count];
-        Value ret = builtins::fns[fn_index].fun(vm.ctx, args);
-        foreach (usz i, Value v : args) {
-            vm.pop();
+        if (fn_index != -1) {
+            Value ret = builtins::fns[fn_index].fun(vm.ctx, args);
+            foreach (usz i, Value v : args) {
+                vm.pop();
+            }
+            vm.push(ret);
+        } else {
+            Value ret = vm.interpret_lambda(&ident, args);
+            foreach (usz i, Value v : args) {
+                vm.pop();
+            }
+            vm.push(ret);
         }
-        vm.push(ret);
     default:
         io::fprintfn(io::stderr(), "Unhandled instruction \"%s\"!", instr.name);
         sc::disassemble(vm.chunk, "runtime");

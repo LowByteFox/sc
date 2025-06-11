@@ -26,8 +26,8 @@ enum Type : char {
     STRING,
     SYMBOL,
     LIST,
-    CFUNC,
     LAZY_ADDR,
+    LAMBDA,
 }
 
 union ValueUnion {
@@ -38,6 +38,7 @@ union ValueUnion {
     String symbol;
     String str;
     ValueList list;
+    Lambda lambda;
 }
 
 struct Value {
@@ -54,6 +55,7 @@ enum Instr : char (String name) {
     ARG_END =    "Args End",
 }
 
+alias ArgNameList = List{ String };
 alias TokenList = List{ Token };
 alias LocList = List{ ushort };
 alias InstrList = List{ Instr };
@@ -76,6 +78,11 @@ struct CFunction {
     String name;
     Function fun;
     bool lazy;
+}
+
+struct Lambda {
+    ushort body;
+    ArgNameList args;
 }
 
 struct Vm {

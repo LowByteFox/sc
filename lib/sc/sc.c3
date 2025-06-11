@@ -24,7 +24,15 @@ fn void Context.set_var(&self, String name, Value val) {
     self.vm.current_env.store[name] = val;
 }
 
-fn Value? Context.get_var(&self, String name) => self.vm.current_env.store[name];
+fn Value? Context.get_var(&self, String name) {
+    Environment *iter = self.vm.current_env;
+    while (iter.parent != null) {
+        if (iter.store.has_key(name)) return iter.store[name];
+        iter = iter.parent;
+    }
+
+    return iter.store[name];
+}
 
 fn Value Context.eval_at(&self, ushort ip, bool lazy = false) {
     usz old = self.vm.ip;
